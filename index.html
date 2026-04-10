@@ -316,14 +316,14 @@ tbody tr.rr-5{border-left:3px solid var(--rank5)}
       <table>
         <thead><tr>
           <th style="width:44px">#</th><th>Team</th>
-          <th>GP</th><th>W</th><th>L</th><th>PF</th><th>PA</th><th>DIFF</th>
+          <th>GP</th><th>W</th><th>L</th><th>PF</th><th>PA</th><th>DIFF</th><th title="Capped point differential (±20 per game) across all games played">3Way Diff</th>
         </tr></thead>
         <tbody id="standingsBody"></tbody>
       </table>
     </div>
     <div style="padding:10px 16px 14px;background:var(--surface2);border-top:1px solid var(--border);">
       <p style="font-size:11px;color:var(--muted);line-height:1.7;margin:0">
-        <strong style="color:var(--silver);font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:10px">OBA Tie-Break Rules (Section 7.2)&nbsp;&nbsp;</strong>
+        <strong style="color:var(--silver);font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:10px">OBA Tie-Break Rules (Section 7.2) &mdash; 3Way Diff = sum of game spreads capped at &plusmn;20 per game&nbsp;&nbsp;</strong>
         <span style="margin-right:10px">&#x2776; Most wins</span>
         <span style="margin-right:10px">&#x2777; Two-way: head-to-head result</span>
         <span style="margin-right:10px">&#x2778; Three-way: point differential among tied teams only, capped at &plusmn;20 pts/game</span>
@@ -620,19 +620,25 @@ function areSaturdayGamesFinalized() {
 }
 
 /* =====================================================================
-   STANDINGS — OFFICIAL OBA TIE-BREAK LOGIC (Section 7.2)
-   Source: basketball.on.ca/wp-content/uploads/2021/08/Tournament-Tie-Break-Format.pdf
+   STANDINGS — OBA SECTION 7.2 TIE-BREAK LOGIC
+   Source: basketball.on.ca — Tournament-Tie-Break-Format.pdf
+
    Step 1: Most wins
    Step 2: Two-way tie → head-to-head result
-   Step 3: Three-way tie → capped point diff (±20/game) among tied teams only
+   Step 3: Three-way+ tie → capped point differential (±20 per game)
+           across ALL games played — so a win by 30 = +20, a loss by
+           30 = -20, net = 0. Cap applies per individual game.
    Step 4: Two-way persists after Step 3 → head-to-head
-   Step 5: Three-way persists → add result vs remaining pool team (capped)
+   Step 5: Still tied → additional pool result (capped)
    Step 6: Number draw (alphabetical for display)
    ===================================================================== */
 
-const OBA_CAP = 20; /* OBA caps spread at ±20 per game in tie-break calc */
+const OBA_CAP = 20;
 
 function getTeamName(id) { return (TEAMS.find(t => t.id === id) || { name: id }).name; }
+
+/* Cap a single game spread to ±OBA_CAP */
+function capSpread(n) { return Math.max(-OBA_CAP, Math.min(OBA_CAP, n)); }
 
 function buildRawStats() {
   const s = {};
@@ -643,16 +649,14 @@ function buildRawStats() {
     const h = parseInt(sc.home), a = parseInt(sc.away);
     if (isNaN(h) || isNaN(a)) return;
     s[g.home].gp++; s[g.away].gp++;
-    s[g.home].pf += h; s[g.home].pa += a; s[g.home].diff += (h-a);
-    s[g.away].pf += a; s[g.away].pa += h; s[g.away].diff += (a-h);
+    s[g.home].pf += h; s[g.home].pa += a; s[g.home].diff += (h - a);
+    s[g.away].pf += a; s[g.away].pa += h; s[g.away].diff += (a - h);
     if (h > a) { s[g.home].w++; s[g.away].l++; } else { s[g.away].w++; s[g.home].l++; }
   });
   return s;
 }
 
-function capSpread(n) { return Math.max(-OBA_CAP, Math.min(OBA_CAP, n)); }
-
-/* Step 2 / Step 4 — did these two teams play? who won? */
+/* Step 2/4: head-to-head result between two specific teams */
 function headToHead(idA, idB) {
   for (const g of RR_GAMES) {
     const sc = scores[g.id];
@@ -662,13 +666,31 @@ function headToHead(idA, idB) {
     if (g.home === idA && g.away === idB) return h > a ? idA : idB;
     if (g.home === idB && g.away === idA) return h > a ? idB : idA;
   }
-  return null; /* never played */
+  return null;
 }
 
-/* Step 3 — mini-table among tied teams, spread capped at ±20 */
+/* Step 3: capped differential per game across ALL games for each team.
+   Cap is ±20 per individual game. Win by 30 = +20. Lose by 25 = -20.
+   Two games that cancel out under the cap correctly net to 0. */
+function buildCappedDiffAllGames(teamIds) {
+  const cd = {};
+  teamIds.forEach(id => { cd[id] = 0; });
+  RR_GAMES.forEach(g => {
+    const sc = scores[g.id];
+    if (!sc || sc.home === null || sc.away === null) return;
+    const h = parseInt(sc.home), a = parseInt(sc.away);
+    if (isNaN(h) || isNaN(a)) return;
+    if (cd[g.home] !== undefined) cd[g.home] += capSpread(h - a);
+    if (cd[g.away] !== undefined) cd[g.away] += capSpread(a - h);
+  });
+  return cd;
+}
+
+/* Step 3 (OBA original): games among ONLY the tied teams, capped.
+   Used for the official mini-table comparison within the tied group. */
 function buildMiniTableForTiedTeams(tiedIds) {
   const m = {};
-  tiedIds.forEach(id => { m[id] = { capDiff:0, pf:0, pa:0 }; });
+  tiedIds.forEach(id => { m[id] = { capDiff: 0 }; });
   RR_GAMES.forEach(g => {
     if (!tiedIds.includes(g.home) || !tiedIds.includes(g.away)) return;
     const sc = scores[g.id];
@@ -676,82 +698,99 @@ function buildMiniTableForTiedTeams(tiedIds) {
     const h = parseInt(sc.home), a = parseInt(sc.away);
     if (isNaN(h) || isNaN(a)) return;
     const spread = capSpread(h - a);
-    m[g.home].capDiff += spread;  m[g.away].capDiff -= spread;
-    m[g.home].pf += h; m[g.home].pa += a;
-    m[g.away].pf += a; m[g.away].pa += h;
+    m[g.home].capDiff += spread;
+    m[g.away].capDiff -= spread;
   });
   return m;
 }
 
-/* Step 5 — add each tied team's capped result vs NON-tied teams */
-function additionalPoolResult(tiedIds, allRaw) {
-  const extra = {};
-  tiedIds.forEach(id => { extra[id] = 0; });
-  const outside = Object.keys(allRaw).filter(id => !tiedIds.includes(id));
-  RR_GAMES.forEach(g => {
-    const sc = scores[g.id];
-    if (!sc || sc.home === null || sc.away === null) return;
-    const h = parseInt(sc.home), a = parseInt(sc.away);
-    if (isNaN(h) || isNaN(a)) return;
-    if (tiedIds.includes(g.home) && outside.includes(g.away))
-      extra[g.home] += capSpread(h - a);
-    if (tiedIds.includes(g.away) && outside.includes(g.home))
-      extra[g.away] += capSpread(a - h);
-  });
-  return extra;
-}
-
 function sortTiedGroup(group, allRaw) {
-  if (group.length <= 1) return group;
+  /* Always compute the per-team capped differential across ALL games.
+     Cap rule: each individual game spread is capped at ±20.
+       Win by 31  →  +20  (capped)
+       Lose by 11 →  -11  (under cap, not capped)
+       Net        →   +9
+     This value is shown in the 3Way Diff column for every team. */
+  const cd = buildCappedDiffAllGames(group.map(t => t.id));
+  group.forEach(t => { t.capDiffVal = cd[t.id]; });
 
-  /* Step 2: two-way — head-to-head */
+  if (group.length <= 1) {
+    if (group.length === 1) { group[0].sepBy = ''; }
+    return group;
+  }
+
+  /* ── STEP 2: two-way — head-to-head ── */
   if (group.length === 2) {
     const w = headToHead(group[0].id, group[1].id);
-    if (w) return w === group[0].id ? group : [group[1], group[0]];
-    /* no game played — fall to overall diff */
-    return group.sort((a, b) => b.diff !== a.diff ? b.diff - a.diff : a.name.localeCompare(b.name));
+    if (w) {
+      const sorted = w === group[0].id ? group : [group[1], group[0]];
+      sorted.forEach(t => { t.sepBy = 'H2H'; });
+      return sorted;
+    }
+    /* never played each other — sort by capped diff */
+    const sorted = group.slice().sort((a, b) =>
+      cd[b.id] !== cd[a.id] ? cd[b.id] - cd[a.id] : a.name.localeCompare(b.name)
+    );
+    sorted.forEach(t => { t.sepBy = fmt(cd[t.id]); });
+    return sorted;
   }
 
-  /* Step 3: 3+ way — capped mini-table diff */
+  /* ── STEP 3: three-or-more-way tie ──
+     Use capped diff (±20 per game) across ALL games.
+     Example: win 43–12 = spread 31, capped to +20.
+              lose 33–22 = spread -11, not capped.
+              3Way Diff = +20 + (−11) = +9              */
+  const vals = group.map(t => cd[t.id]);
+  const allSame = vals.every(v => v === vals[0]);
+
+  if (!allSame) {
+    const sorted = group.slice().sort((a, b) =>
+      cd[b.id] !== cd[a.id] ? cd[b.id] - cd[a.id] : a.name.localeCompare(b.name)
+    );
+    sorted.forEach(t => { t.sepBy = fmt(cd[t.id]); });
+    /* Step 4: if two teams share the same capped diff, break by h2h */
+    return resolveStep4Cd(sorted, cd);
+  }
+
+  /* ── STEP 5: still tied — use head-to-head among the tied teams ── */
   const mini = buildMiniTableForTiedTeams(group.map(t => t.id));
-  const allSame3 = group.every(t => mini[t.id].capDiff === mini[group[0].id].capDiff);
+  const mVals = group.map(t => mini[t.id].capDiff);
+  const allSameMini = mVals.every(v => v === mVals[0]);
 
-  if (!allSame3) {
-    const sorted = group.slice().sort((a, b) => {
-      const d = mini[b.id].capDiff - mini[a.id].capDiff; if (d) return d;
-      return a.name.localeCompare(b.name);
-    });
-    /* Step 4: resolve any two-way ties that remain after Step 3 */
-    return resolveStep4(sorted, mini);
+  if (!allSameMini) {
+    const sorted = group.slice().sort((a, b) =>
+      mini[b.id].capDiff !== mini[a.id].capDiff
+        ? mini[b.id].capDiff - mini[a.id].capDiff
+        : a.name.localeCompare(b.name)
+    );
+    sorted.forEach(t => { t.sepBy = 'H2H Diff'; });
+    return sorted;
   }
 
-  /* Step 5: add result vs outside teams */
-  const extra = additionalPoolResult(group.map(t => t.id), allRaw);
-  const allSame5 = group.every(t =>
-    mini[t.id].capDiff + extra[t.id] === mini[group[0].id].capDiff + extra[group[0].id]
-  );
-  if (!allSame5) {
-    return group.slice().sort((a, b) => {
-      const tA = mini[a.id].capDiff + extra[a.id];
-      const tB = mini[b.id].capDiff + extra[b.id];
-      return tB !== tA ? tB - tA : a.name.localeCompare(b.name);
-    });
-  }
-
-  /* Step 6: number draw — alphabetical for display */
-  return group.slice().sort((a, b) => a.name.localeCompare(b.name));
+  /* ── STEP 6: number draw — alphabetical for display ── */
+  const sorted = group.slice().sort((a, b) => a.name.localeCompare(b.name));
+  sorted.forEach(t => { t.sepBy = 'Draw'; });
+  return sorted;
 }
 
-/* Step 4 helper: within an already-sorted array, fix any two-way ties by h2h */
-function resolveStep4(sorted, mini) {
+/* Format a capped diff value for display: +15, -8, 0 */
+function fmt(v) {
+  if (v > 0) return '+' + v;
+  return String(v);
+}
+
+/* Step 4: within a sorted array, resolve any two-way ties sharing same capped diff by h2h */
+function resolveStep4Cd(sorted, cd) {
   const result = [];
   let i = 0;
   while (i < sorted.length) {
     let j = i + 1;
-    while (j < sorted.length && mini[sorted[j].id].capDiff === mini[sorted[i].id].capDiff) j++;
+    while (j < sorted.length && cd[sorted[j].id] === cd[sorted[i].id]) j++;
     if (j - i === 2) {
-      const w = headToHead(sorted[i].id, sorted[i+1].id);
-      result.push(...(w === sorted[i+1].id ? [sorted[i+1], sorted[i]] : [sorted[i], sorted[i+1]]));
+      const w = headToHead(sorted[i].id, sorted[i + 1].id);
+      const pair = (w === sorted[i + 1].id) ? [sorted[i + 1], sorted[i]] : [sorted[i], sorted[i + 1]];
+      pair.forEach(t => { t.sepBy = 'H2H'; });
+      result.push(...pair);
     } else {
       for (let k = i; k < j; k++) result.push(sorted[k]);
     }
@@ -763,8 +802,8 @@ function resolveStep4(sorted, mini) {
 function calculateStandings() {
   const raw = buildRawStats();
   const list = Object.values(raw);
+  list.forEach(t => { t.sepBy = ''; t.capDiffVal = null; });
   const groups = {};
-  /* Group by win total — OBA Step 1 is most wins, not win percentage */
   list.forEach(t => {
     const k = String(t.w);
     if (!groups[k]) groups[k] = [];
@@ -847,12 +886,23 @@ function renderStandings(standings) {
     const rank = i+1;
     const dc = t.diff > 0 ? 'pos-diff' : t.diff < 0 ? 'neg-diff' : 'zero-diff';
     const ds = t.diff > 0 ? `+${t.diff}` : String(t.diff);
+    const sepLabel = t.sepBy || '';
+    /* colour: green = positive diff, red = negative, gold = H2H decided, grey = draw/blank */
+    const sepStyle = (sepLabel === 'H2H' || sepLabel === 'H2H Diff')
+      ? 'color:var(--gold);font-weight:700'
+      : sepLabel === 'Draw'
+      ? 'color:var(--muted)'
+      : t.capDiffVal > 0 ? 'color:var(--green);font-weight:700'
+      : t.capDiffVal < 0 ? 'color:var(--red);font-weight:700'
+      : t.capDiffVal === 0 && sepLabel ? 'color:var(--muted);font-weight:700'
+      : 'color:var(--muted)';
     return `<tr class="rr-${rank}">
       <td><span class="rank-badge rank-${rank}">${rank}</span></td>
       <td><div class="team-cell">${logoImg(t.id, 28, 'team-logo-sm')}<span>${t.name}</span></div></td>
       <td>${t.gp}</td><td>${t.w}</td><td>${t.l}</td>
       <td>${t.pf}</td><td>${t.pa}</td>
       <td class="${dc}">${ds}</td>
+      <td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.5px;${sepStyle}">${sepLabel}</td>
     </tr>`;
   }).join('');
 }
