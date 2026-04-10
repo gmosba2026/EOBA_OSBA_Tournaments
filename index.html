@@ -385,7 +385,7 @@ function loginWithPin() {
   const val = document.getElementById('pinInput').value.trim();
   if (val === ADMIN_PIN) {
     isAdmin = true;
-    saveToLocalStorage();
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
     closePinModal();
     updateAdminUI();
     render();
@@ -402,7 +402,7 @@ function loginWithPin() {
 
 function logoutAdmin() {
   isAdmin = false;
-  saveToLocalStorage();
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
   updateAdminUI();
   render();
   showToast('Editing locked. View-only mode.');
@@ -485,21 +485,77 @@ let scores = {};         // { [rrGameId]: { home, away } }
 let playoffScores = {};  // { [playoffId]: { home, away } }
 
 /* =====================================================================
-   STORAGE
+   STORAGE — JSONBin cloud sync + localStorage cache
+   Bin ID:    69d93d4caaba882197e5c079
    ===================================================================== */
-const LS_KEY = 'u13aaa_2026_v2';
+const LS_KEY    = 'u13aaa_2026_v2';
+const BIN_ID    = '69d93d4caaba882197e5c079';
+const BIN_KEY   = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
+const BIN_URL   = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+let   pollTimer = null;
 
-function saveToLocalStorage() {
-  localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin }));
+/* Write scores to JSONBin and mirror to localStorage */
+async function saveToLocalStorage() {
+  const payload = { scores, playoffScores };
+  /* cache locally immediately */
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
+  /* push to cloud */
+  try {
+    await fetch(BIN_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': BIN_KEY },
+      body: JSON.stringify(payload)
+    });
+    showToast('Score saved & live ✓');
+  } catch(e) {
+    showToast('Saved locally — check connection', true);
+  }
 }
 
-function loadFromLocalStorage() {
+/* Load scores from JSONBin; fall back to localStorage if offline */
+async function loadFromLocalStorage() {
+  /* restore admin session from localStorage only */
   try {
-    const d = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-    scores        = d.scores        || {};
-    playoffScores = d.playoffScores || {};
-    isAdmin       = !!d.isAdmin;
+    const cached = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    isAdmin = !!cached.isAdmin;
   } catch(e) {}
+
+  try {
+    const res  = await fetch(BIN_URL + '/latest', {
+      headers: { 'X-Master-Key': BIN_KEY }
+    });
+    const data = await res.json();
+    const rec  = data.record || {};
+    scores        = rec.scores        || {};
+    playoffScores = rec.playoffScores || {};
+    /* update local cache */
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
+  } catch(e) {
+    /* offline fallback */
+    try {
+      const cached  = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      scores        = cached.scores        || {};
+      playoffScores = cached.playoffScores || {};
+    } catch(e2) {}
+  }
+}
+
+/* Poll cloud every 10 s so all viewers see live scores */
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (isAdmin) return; /* admin has authoritative copy */
+    try {
+      const res  = await fetch(BIN_URL + '/latest', {
+        headers: { 'X-Master-Key': BIN_KEY }
+      });
+      const data = await res.json();
+      const rec  = data.record || {};
+      scores        = rec.scores        || {};
+      playoffScores = rec.playoffScores || {};
+      render();
+    } catch(e) { /* silent — keep showing cached data */ }
+  }, 10000);
 }
 
 /* =====================================================================
@@ -833,7 +889,7 @@ function saveScore(id) {
   const a = parseInt(document.getElementById('a'+id)?.value);
   if (isNaN(h) || isNaN(a) || h < 0 || a < 0) return showToast('Enter valid scores for both teams', true);
   if (h === a) return showToast('No ties in basketball — scores must differ', true);
-  scores[id] = { home:h, away:a }; saveToLocalStorage(); render(); showToast('Score saved ✓');
+  scores[id] = { home:h, away:a }; saveToLocalStorage(); render();
 }
 function clearScore(id) {
   if (!isAdmin) return;
@@ -845,7 +901,7 @@ function savePlayoffScore(id) {
   const a = parseInt(document.getElementById('pa'+id)?.value);
   if (isNaN(h) || isNaN(a) || h < 0 || a < 0) return showToast('Enter valid scores', true);
   if (h === a) return showToast('No ties in basketball', true);
-  playoffScores[id] = { home:h, away:a }; saveToLocalStorage(); render(); showToast('Playoff score saved ✓');
+  playoffScores[id] = { home:h, away:a }; saveToLocalStorage(); render();
 }
 function clearPlayoffScore(id) {
   if (!isAdmin) return;
@@ -856,7 +912,7 @@ function handlePlayoffKey(e, id) { if (e.key === 'Enter') savePlayoffScore(id); 
 function confirmReset() {
   if (!isAdmin) return;
   if (confirm('Reset ALL scores? This cannot be undone.')) {
-    scores = {}; playoffScores = {}; saveToLocalStorage(); render(); showToast('All scores reset');
+    scores = {}; playoffScores = {}; saveToLocalStorage(); render();
   }
 }
 
@@ -890,8 +946,10 @@ function render() {
 /* =====================================================================
    INIT
    ===================================================================== */
-loadFromLocalStorage();
-render();
+loadFromLocalStorage().then(() => {
+  render();
+  startPolling();
+});
 </script>
 </body>
 </html>
