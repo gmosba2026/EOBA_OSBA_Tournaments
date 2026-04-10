@@ -233,6 +233,15 @@ tbody tr.rr-5{border-left:3px solid var(--rank5)}
   opacity:0;transform:translateY(10px);transition:all 0.3s;pointer-events:none;z-index:1000;
 }
 #toast.show{opacity:1;transform:translateY(0)}
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:6px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+#refreshBtn{
+  padding:4px 11px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;
+  background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3);margin-left:6px;
+}
+#refreshBtn:hover{background:rgba(34,197,94,.22)}
+#syncStatus{font-size:11px;color:var(--muted);margin-left:8px;font-style:italic;font-weight:400;text-transform:none;letter-spacing:0}
 
 @media(max-width:640px){
   .header-inner{grid-template-columns:56px 1fr 56px;gap:8px;padding:14px}
@@ -253,8 +262,11 @@ tbody tr.rr-5{border-left:3px solid var(--rank5)}
   <div class="mode-left">
     <div class="mode-dot"></div>
     <span id="modeLabel">View Only Mode</span>
+    <span class="live-dot"></span>
+    <span id="syncStatus"></span>
   </div>
-  <div style="display:flex;gap:8px;align-items:center">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button id="refreshBtn" onclick="manualRefresh()">&#x21BB; Refresh</button>
     <button class="banner-btn" id="btnAdminLogin" onclick="openPinModal()">&#x1F512; Admin / Gym Captain Login</button>
     <button class="banner-btn" id="btnAdminLogout" onclick="logoutAdmin()" style="display:none">&#x1F513; Lock &amp; Log Out</button>
   </div>
@@ -506,6 +518,7 @@ async function saveToLocalStorage() {
       headers: { 'Content-Type': 'application/json', 'X-Master-Key': BIN_KEY },
       body: JSON.stringify(payload)
     });
+    updateSyncStatus();
     showToast('Score saved & live ✓');
   } catch(e) {
     showToast('Saved locally — check connection', true);
@@ -514,12 +527,15 @@ async function saveToLocalStorage() {
 
 /* Load scores from JSONBin; fall back to localStorage if offline */
 async function loadFromLocalStorage() {
-  /* restore admin session from localStorage only */
+  /* Step 1: load cache instantly so page renders immediately */
   try {
-    const cached = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-    isAdmin = !!cached.isAdmin;
+    const cached  = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    isAdmin       = !!cached.isAdmin;
+    scores        = cached.scores        || {};
+    playoffScores = cached.playoffScores || {};
   } catch(e) {}
 
+  /* Step 2: fetch fresh data from cloud in background, then re-render */
   try {
     const res  = await fetch(BIN_URL + '/latest', {
       headers: { 'X-Master-Key': BIN_KEY }
@@ -528,16 +544,10 @@ async function loadFromLocalStorage() {
     const rec  = data.record || {};
     scores        = rec.scores        || {};
     playoffScores = rec.playoffScores || {};
-    /* update local cache */
     try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
-  } catch(e) {
-    /* offline fallback */
-    try {
-      const cached  = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-      scores        = cached.scores        || {};
-      playoffScores = cached.playoffScores || {};
-    } catch(e2) {}
-  }
+    render();
+    updateSyncStatus();
+  } catch(e) { /* stay on cached data silently */ }
 }
 
 /* Poll cloud every 10 s so all viewers see live scores */
@@ -554,8 +564,9 @@ function startPolling() {
       scores        = rec.scores        || {};
       playoffScores = rec.playoffScores || {};
       render();
+      updateSyncStatus();
     } catch(e) { /* silent — keep showing cached data */ }
-  }, 10000);
+  }, 15000);
 }
 
 /* =====================================================================
@@ -914,6 +925,35 @@ function confirmReset() {
   if (confirm('Reset ALL scores? This cannot be undone.')) {
     scores = {}; playoffScores = {}; saveToLocalStorage(); render();
   }
+}
+
+/* =====================================================================
+   MANUAL REFRESH & SYNC STATUS
+   ===================================================================== */
+async function manualRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  if (btn) btn.textContent = '⟳ Syncing…';
+  try {
+    const res  = await fetch(BIN_URL + '/latest', { headers: { 'X-Master-Key': BIN_KEY } });
+    const data = await res.json();
+    const rec  = data.record || {};
+    scores        = rec.scores        || {};
+    playoffScores = rec.playoffScores || {};
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ scores, playoffScores, isAdmin })); } catch(e) {}
+    render();
+    updateSyncStatus();
+    showToast('Scores refreshed ✓');
+  } catch(e) {
+    showToast('Could not reach server', true);
+  }
+  if (btn) btn.textContent = '↻ Refresh';
+}
+
+function updateSyncStatus() {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const now = new Date();
+  el.textContent = 'Updated ' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
 }
 
 /* =====================================================================
