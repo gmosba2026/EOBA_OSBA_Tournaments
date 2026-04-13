@@ -863,9 +863,12 @@ function renderOfficials(t) {
     const g=offs.filter(o=>o.role===role); if(!g.length) return;
     h+=`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 3px">${role}</div>`;
     g.forEach(o=>{
-      h+=`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-        <span style="flex:1;font-weight:600">${o.name}</span>
-        ${o.phone?`<span style="color:var(--muted);font-size:11px">${o.phone}</span>`:''}
+      h+=`<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+          <span style="flex:1;font-weight:600">${o.name}</span>
+          ${o.phone?`<span style="color:var(--muted);font-size:11px">&#x1F4DE; ${o.phone}</span>`:''}
+        </div>
+        ${o.email?`<div style="font-size:11px;color:var(--muted);margin-top:2px">&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></div>`:''}
       </div>`;
     });
   });
@@ -934,7 +937,19 @@ function renderSchedule(t) {
           </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">${se}</div>
-      </div>`;
+      </div>
+      ${(()=>{
+        const go=g.officials||{};
+        const parts=[];
+        const offN=id=>{if(!id)return'';const o=(t.officials||[]).find(x=>x.id===id);return o?o.name:'';};
+        if(offN(go.gc)) parts.push('<span>&#x1F6A9; <strong>GC:</strong> '+offN(go.gc)+'</span>');
+        if(offN(go.sk)) parts.push('<span>&#x1F4CB; <strong>SK:</strong> '+offN(go.sk)+'</span>');
+        if(offN(go.sc)) parts.push('<span>&#x23F1; <strong>SC:</strong> '+offN(go.sc)+'</span>');
+        if(offN(go.gs)) parts.push('<span>&#x1F4DD; <strong>GS:</strong> '+offN(go.gs)+'</span>');
+        return parts.length?`<div style="display:flex;flex-wrap:wrap;gap:12px;padding:6px 14px 8px;
+          font-size:11px;color:var(--muted);border-top:1px solid var(--border);background:rgba(0,0,0,.15)">
+          ${parts.join('')}</div>`:'';
+      })()}`;
     });
   });
   el.innerHTML=html;
@@ -1064,16 +1079,17 @@ function setTab(tab) { adminTab=tab; renderAdminPanel(); }
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
   const t=getActive();
-  const tabs=['tournaments','teams','rosters','schedule'];
-  const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',gyms:'Gyms',schedule:'Schedule'};
+  const tabs=['tournaments','teams','rosters','officials','assignments','schedule'];
+  const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',officials:'Officials',assignments:'Assignments',schedule:'Schedule'};
   let html=`<div class="ap-header"><div class="ap-title">\u2699\uFE0F Admin Panel</div><button class="ap-close" onclick="closeAdminPanel()">\u2715</button></div>
   <div class="ap-tabs">${tabs.map(tab=>`<button class="ap-tab${adminTab===tab?' active':''}" onclick="setTab('${tab}')">${labels[tab]}</button>`).join('')}</div>
   <div class="ap-body">`;
   if(adminTab==='tournaments') html+=apTournaments();
   else if(adminTab==='teams')  html+=apTeams(t);
   else if(adminTab==='rosters')   html+=apRosters(t);
-  else if(adminTab==='officials') html+=apOfficials(t);
-  else if(adminTab==='schedule')  html+=apSchedule(t);
+  else if(adminTab==='officials')   html+=apOfficials(t);
+  else if(adminTab==='assignments') html+=apAssignments(t);
+  else if(adminTab==='schedule')    html+=apSchedule(t);
   html+='</div>';
   panel.innerHTML=html;
 }
@@ -1268,10 +1284,16 @@ function apOfficials(t) {
       if(!group.length) return;
       h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 4px">${role}</div>`;
       group.forEach(o=>{
-        h += `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:5px;font-size:13px">
-          <span style="flex:1;font-weight:600">${o.name}</span>
-          ${o.phone?`<span style="color:var(--muted);font-size:11px">${o.phone}</span>`:''}
-          <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${t.id}','${o.id}')">Remove</button>
+        h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:5px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="flex:1;font-weight:700;font-size:13px">${o.name}</span>
+            <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${t.id}','${o.id}')">&#x270F;</button>
+            <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${t.id}','${o.id}')">Remove</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--muted)">
+            ${o.phone?`<span>&#x1F4DE; ${o.phone}</span>`:''}
+            ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted);text-decoration:none">${o.email}</a></span>`:''}
+          </div>
         </div>`;
       });
     });
@@ -1280,7 +1302,7 @@ function apOfficials(t) {
   }
   h += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;flex-wrap:wrap">
       <div><label>Role</label>
         <select id="f_or">
           <option value="Gym Captain">Gym Captain</option>
@@ -1292,8 +1314,9 @@ function apOfficials(t) {
         </select>
       </div>
       <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
-      <div><label>Phone (optional)</label><input id="f_op" placeholder="613-555-0100"></div>
-      <button class="ap-btn ap-btn-primary" onclick="addOfficial('${t.id}')">Add</button>
+      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
+      <div><label>Email (e-transfer)</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
+      <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addOfficial('${t.id}')">Add</button>
     </div>
   </div>`;
   return h;
@@ -1304,15 +1327,166 @@ function addOfficial(tId) {
   const name=document.getElementById('f_on').value.trim();
   if(!name) return showToast('Enter name',true);
   if(!t.officials) t.officials=[];
-  t.officials.push({id:'o'+Date.now(), role:document.getElementById('f_or').value, name, phone:document.getElementById('f_op').value.trim()});
+  t.officials.push({id:'o'+Date.now(), role:document.getElementById('f_or').value, name,
+    phone:document.getElementById('f_op').value.trim(),
+    email:document.getElementById('f_oe').value.trim().toLowerCase()});
   syncToCloud(); renderAdminPanel(); showToast('Official added \u2713');
 }
 
+function openEditOfficial(tId, oId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const o=(t.officials||[]).find(x=>x.id===oId); if(!o) return;
+  openModal(`<div class="modal-box" style="max-width:480px">
+    <div class="modal-title">&#x270F; Edit Official</div>
+    <div class="ap-form">
+      <label>Role</label>
+      <select id="eo_role">
+        ${['Gym Captain','Scorekeeper','Shot Clock','Game Sheet','Referee','Other'].map(r=>
+          `<option value="${r}"${r===o.role?' selected':''}>${r}</option>`).join('')}
+      </select>
+      <label>Name</label>
+      <input id="eo_name" value="${o.name||''}">
+      <label>Phone</label>
+      <input id="eo_phone" value="${o.phone||''}" placeholder="613-555-0100">
+      <label>Email (e-transfer)</label>
+      <input id="eo_email" type="email" value="${o.email||''}" placeholder="name@email.com">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditOfficial('${tId}','${oId}')">&#x2713; Save</button>
+    </div></div>`);
+  setTimeout(()=>document.getElementById('eo_name')?.focus(),80);
+}
+function submitEditOfficial(tId, oId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const o=(t.officials||[]).find(x=>x.id===oId); if(!o) return;
+  o.role  = document.getElementById('eo_role').value;
+  o.name  = document.getElementById('eo_name').value.trim()||o.name;
+  o.phone = document.getElementById('eo_phone').value.trim();
+  o.email = document.getElementById('eo_email').value.trim().toLowerCase();
+  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Official updated \u2713');
+}
 function removeOfficial(tId, oId) {
   const t=appState.tournaments.find(x=>x.id===tId); if(!t||!t.officials) return;
   if(!confirm('Remove this official?')) return;
   t.officials=t.officials.filter(o=>o.id!==oId);
   syncToCloud(); renderAdminPanel();
+}
+
+function apAssignments(t) {
+  if(!t) return '<div class="ap-empty">No active tournament</div>';
+  const offs = t.officials||[];
+  if(!offs.length) return `<div class="ap-empty">Add officials in the Officials tab first, then assign them here.</div>`;
+  const allGames = [
+    ...(t.games||[]).map(g=>({...g, isPO:false})),
+    ...(t.playoffGames||[]).map(g=>({...g, isPO:true, home:null, away:null}))
+  ];
+  if(!allGames.length) return '<div class="ap-empty">No games scheduled yet.</div>';
+
+  const offOpts=(sel,role)=>{
+    const filtered = role ? offs.filter(o=>o.role===role) : offs;
+    return '<option value="">--</option>'+filtered.map(o=>
+      `<option value="${o.id}"${(sel||'')=== o.id?' selected':''}>${o.name}</option>`
+    ).join('');
+  };
+
+  // Group by day
+  const byDay={};
+  allGames.forEach(g=>{
+    const day=g.day||'TBD';
+    if(!byDay[day]) byDay[day]=[];
+    byDay[day].push(g);
+  });
+
+  let h='';
+  Object.keys(byDay).forEach(day=>{
+    h+=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;
+      text-transform:uppercase;letter-spacing:1.5px;color:var(--orange);padding:8px 0 4px;
+      border-bottom:1px solid var(--border);margin-bottom:8px">${day}</div>`;
+
+    byDay[day].forEach(g=>{
+      const go=g.officials||{};
+      const label = g.isPO
+        ? `<span style="color:var(--gold);font-weight:700">${g.round}</span>`
+        : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
+      const gameId = g.isPO ? `'${g.id}'` : g.id;
+      const saveCall = g.isPO
+        ? `savePlayoffOfficials('${t.id}','${g.id}')`
+        : `saveGameOfficials('${t.id}',${g.id})`;
+
+      h+=`<div style="background:var(--surface2);border:1px solid ${g.isPO?'rgba(245,197,24,.3)':'var(--border)'};
+        border-left:3px solid ${g.isPO?'var(--gold)':'var(--orange)'};
+        border-radius:7px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px">${label}</div>
+          <div style="font-size:11px;color:var(--muted)">${g.time||''}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+              color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
+            <select id="asgn_gc_${g.isPO?'po_':''  }${g.id}" style="width:100%;font-size:12px;
+              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
+              color:var(--text);padding:5px 7px">
+              ${offOpts(go.gc,'Gym Captain')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+              color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
+            <select id="asgn_sk_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
+              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
+              color:var(--text);padding:5px 7px">
+              ${offOpts(go.sk,'Scorekeeper')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+              color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
+            <select id="asgn_sc_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
+              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
+              color:var(--text);padding:5px 7px">
+              ${offOpts(go.sc,'Shot Clock')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+              color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
+            <select id="asgn_gs_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
+              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
+              color:var(--text);padding:5px 7px">
+              ${offOpts(go.gs,'Game Sheet')}
+            </select>
+          </div>
+        </div>
+        <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}"
+          style="font-size:11px">&#x2713; Save Assignments</button>
+      </div>`;
+    });
+  });
+  return h || '<div class="ap-empty">No games to assign.</div>';
+}
+
+function saveGameOfficials(tId, gId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=t.games.find(x=>x.id===gId); if(!g) return;
+  if(!g.officials) g.officials={};
+  g.officials.gc = document.getElementById(`asgn_gc_${gId}`)?.value||'';
+  g.officials.sk = document.getElementById(`asgn_sk_${gId}`)?.value||'';
+  g.officials.sc = document.getElementById(`asgn_sc_${gId}`)?.value||'';
+  g.officials.gs = document.getElementById(`asgn_gs_${gId}`)?.value||'';
+  syncToCloud(); showToast('Assignments saved \u2713');
+}
+
+function savePlayoffOfficials(tId, pgId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const pg=(t.playoffGames||[]).find(x=>x.id===pgId); if(!pg) return;
+  if(!pg.officials) pg.officials={};
+  pg.officials.gc = document.getElementById(`asgn_gc_po_${pgId}`)?.value||'';
+  pg.officials.sk = document.getElementById(`asgn_sk_po_${pgId}`)?.value||'';
+  pg.officials.sc = document.getElementById(`asgn_sc_po_${pgId}`)?.value||'';
+  pg.officials.gs = document.getElementById(`asgn_gs_po_${pgId}`)?.value||'';
+  syncToCloud(); showToast('Assignments saved \u2713');
 }
 
 function apSchedule(t) {
