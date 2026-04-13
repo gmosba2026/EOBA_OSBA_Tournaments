@@ -288,7 +288,7 @@ tr.s5{border-left:3px solid var(--rank5)}
         <thead><tr>
           <th style="width:40px">#</th><th>Team</th>
           <th>GP</th><th>W</th><th>L</th><th>PF</th><th>PA</th><th>DIFF</th>
-          <th title="OBA 3-way tiebreak: capped differential (+-20/game)">3Way Diff</th>
+          <th id="thCapDiff" title="OBA 3-way tiebreak: capped point differential (±20 cap per game)">Capped Differential</th>
         </tr></thead>
         <tbody id="sBody"></tbody>
       </table>
@@ -408,6 +408,7 @@ const DEFAULT_T = {
 let isAdmin   = false;
 let pollTimer = null;
 let adminTab  = 'tournaments';
+let asgnTournId = null;
 let appState  = { tournaments:[], activeTournamentId:null, officials:[] };
 
 // ── STORAGE ──
@@ -501,7 +502,7 @@ function createTournament(cfg) {
   const id = 'T_' + Date.now();
   const t = { id, name:cfg.name, division:cfg.division, stream:cfg.stream, gender:cfg.gender,
     dates:cfg.dates||'TBD', location:cfg.location||'TBD',
-    teams:[], games:[], scores:{}, playoffScores:{}, rosters:{}, courts:[] };
+    teams:[], games:[], scores:{}, playoffScores:{}, rosters:{}, courts:[], showCapDiff:false };
   appState.tournaments.push(t); return t;
 }
 function setActive(id) { appState.activeTournamentId = id; saveLocal(); render(); }
@@ -884,13 +885,18 @@ function renderTeams(t) {
 
 function renderStandings(t,st) {
   const el=document.getElementById('sBody'); if(!el) return;
-  if(!t||!st||!st.length){el.innerHTML='<tr><td colspan="9" style="padding:16px;color:var(--muted);text-align:center">No games played yet</td></tr>';return;}
+  /* Show/hide Capped Differential column */
+  const showCD = t&&t.showCapDiff;
+  const thCD = document.getElementById('thCapDiff');
+  if(thCD) thCD.style.display = showCD ? '' : 'none';
+  if(!t||!st||!st.length){el.innerHTML=`<tr><td colspan="${showCD?9:8}" style="padding:16px;color:var(--muted);text-align:center">No games played yet</td></tr>`;return;}
   el.innerHTML=st.map((tm,i)=>{
     const r=i+1, dc=tm.diff>0?'pos-diff':tm.diff<0?'neg-diff':'zero-diff';
     const ds=tm.diff>0?'+'+tm.diff:String(tm.diff);
     const sep=tm.sepBy||'';
     const ssc=(sep==='H2H'||sep==='H2H Diff')?'color:var(--gold);font-weight:700':sep==='Draw'?'color:var(--muted)':tm.capDiffVal>0?'color:var(--green);font-weight:700':tm.capDiffVal<0?'color:var(--red);font-weight:700':tm.capDiffVal===0&&sep?'color:var(--muted);font-weight:700':'color:var(--muted)';
-    return `<tr class="s${r}"><td><span class="rk rk${r}">${r}</span></td><td><div class="tcell">${li(tLogo(t,tm.id),26)}<span>${tm.name}</span></div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td><td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td></tr>`;
+    const cdCell = showCD ? `<td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td>` : '';
+    return `<tr class="s${r}"><td><span class="rk rk${r}">${r}</span></td><td><div class="tcell">${li(tLogo(t,tm.id),26)}<span>${tm.name}</span></div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td>${cdCell}</tr>`;
   }).join('');
 }
 
@@ -1372,122 +1378,99 @@ function removeOfficial(oId) {
 }
 
 function apAssignments(t) {
-  /* Officials come from the GLOBAL pool */
   const offs = appState.officials||[];
+  const tournList = appState.tournaments||[];
 
-  /* Show a warning if no officials added yet, but still render games */
-  const noOffsMsg = !offs.length
-    ? `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);border-radius:7px;
-        padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--orange)">
-        &#9888; No officials added yet. Add officials in the Officials tab first.
-       </div>` : '';
+  /* Persist tournament selection */
+  if(!asgnTournId && tournList.length) asgnTournId = tournList[0].id;
+  const tourn = tournList.find(x=>x.id===asgnTournId)||tournList[0];
+  if(!tourn) return '<div class="ap-empty">No tournaments available.</div>';
+
+  /* Tournament selector */
+  let h = `<div style="margin-bottom:14px">
+    <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+      color:var(--muted);display:block;margin-bottom:5px">Select Tournament</label>
+    <select onchange="asgnTournId=this.value;renderAdminPanel()"
+      style="width:100%;background:var(--bg);border:1.5px solid var(--orange);border-radius:7px;
+      color:var(--text);padding:9px 12px;font-family:'Barlow Condensed',sans-serif;
+      font-weight:700;font-size:14px;cursor:pointer">
+      ${tournList.map(tr=>'<option value="'+tr.id+'"'+(tr.id===asgnTournId?' selected':'')+'>'+(tr.label||tr.name)+'</option>').join('')}
+    </select>
+  </div>`;
+
+  /* Officials warning */
+  if(!offs.length) h += `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);
+    border-radius:7px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--orange)">
+    &#9888; No officials added yet. Go to the Officials tab to add them first.</div>`;
 
   const offOpts=(sel,role)=>{
     const pool = role ? offs.filter(o=>o.role===role) : offs;
     return '<option value="">-- Unassigned --</option>'
-      + pool.map(o=>`<option value="${o.id}"${(sel||'')=== o.id?' selected':''}>${o.name}</option>`).join('');
+      + pool.map(o=>'<option value="'+o.id+'"'+(sel===o.id?' selected':'')+'>'+o.name+'</option>').join('');
   };
 
-  /* Build across ALL tournaments */
-  let h = noOffsMsg;
-  let anyGames = false;
+  /* All games for this tournament */
+  const allGames = [
+    ...(tourn.games||[]).map(g=>({...g,isPO:false})),
+    ...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))
+  ];
+  if(!allGames.length) { h+='<div class="ap-empty">No games scheduled for this tournament yet.</div>'; return h; }
 
-  appState.tournaments.forEach(tourn=>{
-    const rrGames    = (tourn.games||[]).map(g=>({...g, isPO:false, _t:tourn}));
-    const poGames    = (tourn.playoffGames||[]).map(g=>({...g, isPO:true,  _t:tourn}));
-    const allGames   = [...rrGames, ...poGames];
-    if(!allGames.length) return;
-    anyGames = true;
+  /* Group by day */
+  const byDay={};
+  allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
 
-    /* Tournament header */
-    h += `<div style="background:rgba(249,115,22,.08);border-left:4px solid var(--orange);
-      border-radius:0 6px 6px 0;padding:8px 12px;margin:14px 0 8px;
-      font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;
-      text-transform:uppercase;letter-spacing:1px;color:var(--orange)">
-      ${tourn.label||tourn.name}
-    </div>`;
+  Object.keys(byDay).forEach(day=>{
+    h+=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;
+      color:var(--orange);padding:6px 0 4px;margin-bottom:8px;border-bottom:1px solid var(--border)">${day}</div>`;
 
-    /* Group by day — sort RR before Playoffs */
-    const byDay={};
-    allGames.forEach(g=>{
-      const d=g.day||'TBD';
-      if(!byDay[d]) byDay[d]=[];
-      byDay[d].push(g);
-    });
+    byDay[day].forEach(g=>{
+      const go    = g.officials||{};
+      const cname = courtName(tourn,g.court);
+      const caddr = courtAddr(tourn,g.court);
+      const murl  = caddr?('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(caddr)):'';
+      const uid   = g.isPO?('po_'+g.id+'_'+tourn.id):(g.id+'_'+tourn.id);
+      const saveCall = g.isPO
+        ? ("savePlayoffOfficials('"+tourn.id+"','"+g.id+"')")
+        : ("saveGameOfficials('"+tourn.id+"',"+g.id+")");
 
-    Object.keys(byDay).forEach(day=>{
-      h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;
-        color:var(--muted);padding:4px 0 3px;margin-bottom:6px;border-bottom:1px solid var(--border)">
-        ${day}</div>`;
+      const matchup = g.isPO
+        ? '<span style="color:var(--gold);font-weight:800">&#x1F3C6; '+(g.round||g.id)+'</span>'
+        : '<strong>'+tName(tourn,g.home)+'</strong> <span style="color:var(--muted);font-size:11px">vs</span> <strong>'+tName(tourn,g.away)+'</strong>';
 
-      byDay[day].forEach(g=>{
-        const go      = g.officials||{};
-        const cname   = courtName(tourn, g.court);
-        const caddr   = courtAddr(tourn, g.court);
-        const murl    = caddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(caddr)}` : '';
-        const uid     = g.isPO ? `po_${g.id}_${tourn.id}` : `${g.id}_${tourn.id}`;
-        const saveCall= g.isPO
-          ? `savePlayoffOfficials('${tourn.id}','${g.id}')`
-          : `saveGameOfficials('${tourn.id}',${g.id})`;
-
-        /* Game header line */
-        const matchup = g.isPO
-          ? `<span style="color:var(--gold);font-weight:800">&#x1F3C6; ${g.round||g.id}</span>`
-          : `<strong>${tName(tourn,g.home)}</strong> <span style="color:var(--muted);font-size:11px">vs</span> <strong>${tName(tourn,g.away)}</strong>`;
-
-        h += `<div style="background:var(--surface2);border:1px solid ${g.isPO?'rgba(245,197,24,.25)':'var(--border)'};
-          border-left:3px solid ${g.isPO?'var(--gold)':'rgba(249,115,22,.5)'};
-          border-radius:7px;padding:10px 14px;margin-bottom:8px">
-
-          <!-- Game info row -->
-          <div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:10px">
-            <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px">${matchup}</div>
-            <div style="text-align:right;font-size:11px;color:var(--muted);line-height:1.7">
-              ${g.time?`<div>&#x1F55B; ${g.time}</div>`:''}
-              ${cname?`<div>&#x1F4CD; ${cname}${murl?` <a href="${murl}" target="_blank"
-                style="color:var(--orange);border:1px solid rgba(249,115,22,.4);border-radius:3px;
-                padding:0 5px;text-decoration:none;margin-left:4px;font-size:10px">Map</a>`:''}</div>`:''}
-              ${caddr?`<div style="font-size:10px;color:var(--border)">${caddr}</div>`:''}
-            </div>
+      h += `<div style="background:var(--surface2);border:1px solid ${g.isPO?'rgba(245,197,24,.25)':'var(--border)'};
+        border-left:3px solid ${g.isPO?'var(--gold)':'rgba(249,115,22,.5)'};
+        border-radius:7px;padding:10px 14px;margin-bottom:8px">
+        <div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:10px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px">${matchup}</div>
+          <div style="text-align:right;font-size:11px;color:var(--muted);line-height:1.8">
+            ${g.time?'<div>&#x1F55B; '+g.time+'</div>':''}
+            ${cname?('<div>&#x1F4CD; '+cname+(murl?' <a href="'+murl+'" target="_blank" style="color:var(--orange);border:1px solid rgba(249,115,22,.4);border-radius:3px;padding:0 5px;text-decoration:none;margin-left:4px;font-size:10px">Map</a>':'')+'</div>'):''}
+            ${caddr&&caddr!==cname?'<div style="font-size:10px">'+caddr+'</div>':''}
           </div>
-
-          <!-- Assignment dropdowns -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:10px">
-            <div>
-              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
-              <select id="asgn_gc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
-                ${offOpts(go.gc,'Gym Captain')}
-              </select>
-            </div>
-            <div>
-              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
-              <select id="asgn_sk_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
-                ${offOpts(go.sk,'Scorekeeper')}
-              </select>
-            </div>
-            <div>
-              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
-              <select id="asgn_sc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
-                ${offOpts(go.sc,'Shot Clock')}
-              </select>
-            </div>
-            <div>
-              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
-              <select id="asgn_gs_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
-                ${offOpts(go.gs,'Game Sheet')}
-              </select>
-            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;margin-bottom:10px">
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
+            <select id="asgn_gc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gc,'Gym Captain')}</select>
           </div>
-          <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}" style="font-size:11px;letter-spacing:.5px">
-            &#x2713; Save Assignments
-          </button>
-        </div>`;
-      });
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
+            <select id="asgn_sk_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sk,'Scorekeeper')}</select>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
+            <select id="asgn_sc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sc,'Shot Clock')}</select>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
+            <select id="asgn_gs_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gs,'Game Sheet')}</select>
+          </div>
+        </div>
+        <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}" style="font-size:11px">&#x2713; Save</button>
+      </div>`;
     });
-    h += '<div style="height:6px"></div>';
   });
-
-  if(!anyGames) return '<div class="ap-empty">No games scheduled in any tournament yet.</div>';
   return h;
 }
 
@@ -1585,6 +1568,13 @@ function openEditTournament(tId) {
       <label>Location</label><input id="et_lc" value="${t.location||''}">
       <label>Host / Subtitle</label><input id="et_hs" value="${t.host||''}">
       <label>Admin PIN</label><input id="et_pn" value="${t.pin||'128976'}" maxlength="10">
+      <label style="grid-column:1/-1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+        <input type="checkbox" id="et_cd" ${t.showCapDiff?'checked':''} style="width:16px;height:16px;accent-color:var(--orange)">
+        <span>
+          <strong>Show Capped Differential column</strong>
+          <span style="display:block;font-size:11px;color:var(--muted);font-weight:400">OBA Section 7.2 three-way tiebreak stat (±20 cap per game). Show only when needed.</span>
+        </span>
+      </label>
     </div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -1601,8 +1591,10 @@ function submitEditTournament(tId) {
   t.dates    = document.getElementById('et_dt').value.trim();
   t.location = document.getElementById('et_lc').value.trim();
   t.host     = document.getElementById('et_hs').value.trim();
-  t.pin      = document.getElementById('et_pn').value.trim()||t.pin;
-  syncToCloud(); closeModal(); renderAdminPanel(); renderTournSelector(); renderHeader(getActive()); showToast('Tournament updated \u2713');
+  t.pin         = document.getElementById('et_pn').value.trim()||t.pin;
+  t.showCapDiff = document.getElementById('et_cd')?.checked||false;
+  syncToCloud(); closeModal(); renderAdminPanel(); renderTournSelector(); renderHeader(getActive());
+  renderStandings(getActive(), calcStandings(getActive())); showToast('Tournament updated \u2713');
 }
 function openCreateT() {
   openModal(`<div class="modal-box"><div class="modal-title">New Tournament</div>
