@@ -1167,31 +1167,24 @@ function apTournaments() {
       text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:10px">
       &#x1F511; PIN Settings
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
       <div>
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Admin PIN</div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <input value="128976" disabled style="background:var(--surface2);color:var(--muted);
-            cursor:not-allowed;letter-spacing:4px;font-weight:700;font-size:15px;width:120px;
-            border:1.5px solid var(--border);border-radius:6px;padding:7px 10px">
-          <span style="font-size:10px;color:var(--muted)">Static &mdash; cannot change</span>
-        </div>
-      </div>
-      <div>
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Gym Captain PIN</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+          color:var(--orange);margin-bottom:5px">&#x1F6A9; Gym Captain PIN</div>
+        <div style="display:flex;align-items:center;gap:8px">
           <input id="gcPinInput" value="${appState.gymCaptainPin||'0000'}"
             placeholder="Enter PIN" maxlength="10"
             onkeydown="if(event.key==='Enter')saveGCPin()"
-            style="letter-spacing:4px;font-weight:700;font-size:15px;width:120px;
-            border:1.5px solid var(--orange);border-radius:6px;padding:7px 10px;
-            background:var(--bg);color:var(--text)">
-          <button class="ap-btn ap-btn-primary" onclick="saveGCPin()" style="font-size:11px;white-space:nowrap">
+            style="letter-spacing:4px;font-weight:700;font-size:16px;width:130px;
+              border:2px solid var(--orange);border-radius:6px;padding:8px 12px;
+              background:var(--bg);color:var(--text)">
+          <button class="ap-btn ap-btn-primary" onclick="saveGCPin()"
+            style="font-size:12px;font-weight:700;white-space:nowrap;padding:8px 16px">
             &#x2713; Save PIN
           </button>
         </div>
         <div style="font-size:10px;color:var(--muted);margin-top:5px">
-          Gives Gym Captains access to the Assignments tab only
+          Gym Captains use this PIN to access score entry &amp; assignments
         </div>
       </div>
     </div>
@@ -1457,90 +1450,93 @@ function removeOfficial(oId) {
 }
 
 function printAllAssignments() {
+  const tournList = appState.tournaments||[];
+  if(!tournList.length) return;
+  if(!asgnTournId && tournList.length) asgnTournId = tournList[0].id;
+  const tourn = tournList.find(x=>x.id===asgnTournId)||tournList[0];
+  if(!tourn) { alert('No tournament selected.'); return; }
+
   const offs = appState.officials||[];
   const offName = id => { const o=offs.find(x=>x.id===id); return o?o.name:''; };
 
+  const allGames = [
+    ...(tourn.games||[]).map(g=>({...g,isPO:false})),
+    ...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))
+  ];
+  if(!allGames.length) { alert('No games scheduled for this tournament.'); return; }
+
+  const byDay = {};
+  allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
+
   let body = `<html><head><meta charset="utf-8">
-    <title>Officials Assignments</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; color: #000; margin: 20px; }
-      h1 { font-size: 18px; margin: 0 0 4px; }
-      .subtitle { font-size: 11px; color: #666; margin-bottom: 18px; }
-      .tourn-header { font-size: 15px; font-weight: bold; color: #f97316;
-        border-bottom: 2px solid #f97316; padding-bottom: 3px; margin: 18px 0 10px; }
-      .day-header { font-size: 10px; font-weight: bold; text-transform: uppercase;
-        letter-spacing: 1px; color: #888; border-bottom: 1px solid #ddd;
-        padding: 4px 0; margin: 10px 0 6px; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-      th { background: #f3f4f6; text-align: left; padding: 5px 8px; font-size: 10px;
-        text-transform: uppercase; letter-spacing: .5px; border: 1px solid #ddd; }
-      td { padding: 5px 8px; border: 1px solid #ddd; vertical-align: top; }
-      .playoff { background: #fffbeb; }
-      .no-asgn { color: #aaa; font-style: italic; }
-      @media print {
-        button { display: none; }
-        .page-break { page-break-before: always; }
-      }
-    </style></head><body>
-    <h1>Officials Assignments</h1>
-    <div class="subtitle">Generated ${new Date().toLocaleString()}</div>`;
+<title>Assignments - ${tourn.label||tourn.name}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:12px;color:#000;margin:24px}
+  h1{font-size:20px;margin:0 0 3px}
+  .sub{font-size:10px;color:#888;margin-bottom:20px}
+  .day{font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;
+       color:#f97316;border-bottom:2px solid #f97316;padding:6px 0 3px;margin:16px 0 8px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}
+  th{background:#f3f4f6;text-align:left;padding:6px 8px;font-size:10px;
+     text-transform:uppercase;letter-spacing:.5px;border:1px solid #ddd}
+  td{padding:6px 8px;border:1px solid #ddd;vertical-align:top;font-size:12px}
+  .po{background:#fffbeb}
+  .bold{font-weight:bold}
+  .po .bold{color:#b45309}
+  .na{color:#bbb}
+  .footer{margin-top:24px;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:8px}
+  .btns{margin-top:18px;text-align:center}
+  @media print{.btns{display:none}body{margin:12px}}
+</style></head><body>
+<h1>${tourn.label||tourn.name}</h1>
+<div class="sub">Officials Assignments &mdash; ${new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>`;
 
-  const tournList = appState.tournaments||[];
-  tournList.forEach((tourn, tIdx) => {
-    const allGames = [
-      ...(tourn.games||[]).map(g=>({...g,isPO:false})),
-      ...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))
-    ];
-    if(!allGames.length) return;
-
-    body += `${tIdx>0?'<div class=\"page-break\"></div>':''}
-      <div class="tourn-header">${tourn.label||tourn.name}</div>`;
-
-    const byDay={};
-    allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
-
-    Object.keys(byDay).forEach(day=>{
-      body += `<div class="day-header">${day}</div>
-        <table>
-          <thead><tr>
-            <th>Game</th><th>Time</th><th>Location</th>
-            <th>Gym Captain</th><th>Scorekeeper</th><th>Shot Clock</th><th>Game Sheet</th>
-          </tr></thead><tbody>`;
-
-      byDay[day].forEach(g=>{
-        const go = g.officials||{};
-        const cname = courtName(tourn, g.court)||'';
-        const caddr = courtAddr(tourn, g.court)||'';
-        const matchup = g.isPO
-          ? (g.round||g.id)
-          : (tName(tourn,g.home)+' vs '+tName(tourn,g.away));
-        const rowClass = g.isPO ? 'class="playoff"' : '';
-        const na = '<span class="no-asgn">—</span>';
-        body += `<tr ${rowClass}>
-          <td><strong>${matchup}</strong></td>
-          <td>${g.time||''}</td>
-          <td>${cname}${caddr?'<br><small style="color:#888">'+caddr+'</small>':''}</td>
-          <td>${offName(go.gc)||na}</td>
-          <td>${offName(go.sk)||na}</td>
-          <td>${offName(go.sc)||na}</td>
-          <td>${offName(go.gs)||na}</td>
-        </tr>`;
-      });
-      body += '</tbody></table>';
+  Object.keys(byDay).forEach(day=>{
+    body += `<div class="day">${day}</div>
+<table><thead><tr>
+  <th style="width:22%">Game</th>
+  <th style="width:11%">Time</th>
+  <th style="width:20%">Location</th>
+  <th style="width:12%">Gym Captain</th>
+  <th style="width:11%">Scorekeeper</th>
+  <th style="width:11%">Shot Clock</th>
+  <th style="width:13%">Game Sheet</th>
+</tr></thead><tbody>`;
+    byDay[day].forEach(g=>{
+      const go = g.officials||{};
+      const cn = courtName(tourn,g.court)||'';
+      const ca = courtAddr(tourn,g.court)||'';
+      const ml = g.isPO ? '&#x1F3C6; '+(g.round||g.id) : (tName(tourn,g.home)+' vs '+tName(tourn,g.away));
+      const rc = g.isPO ? 'po' : '';
+      const na = '<span class="na">&mdash;</span>';
+      const loc = cn+(ca?'<br><small style="color:#999;font-size:10px">'+ca+'</small>':'');
+      body += `<tr class="${rc}">
+  <td class="bold">${ml}</td>
+  <td>${g.time||''}</td>
+  <td>${loc}</td>
+  <td>${offName(go.gc)||na}</td>
+  <td>${offName(go.sk)||na}</td>
+  <td>${offName(go.sc)||na}</td>
+  <td>${offName(go.gs)||na}</td>
+</tr>`;
     });
+    body += '</tbody></table>';
   });
 
-  body += `<div style="margin-top:24px;text-align:center">
-    <button onclick="window.print()" style="padding:8px 24px;font-size:13px;cursor:pointer;
-      background:#f97316;color:#fff;border:none;border-radius:6px">&#x1F5A8; Print</button>
-    &nbsp;
-    <button onclick="window.close()" style="padding:8px 24px;font-size:13px;cursor:pointer">Close</button>
-  </div></body></html>`;
+  body += `<div class="footer">EOBA Tournament Manager &mdash; ${tourn.location||tourn.dates||''}</div>
+<div class="btns">
+  <button onclick="window.print()" style="padding:8px 28px;font-size:13px;cursor:pointer;
+    background:#f97316;color:#fff;border:none;border-radius:6px;font-weight:bold">&#x1F5A8; Print</button>
+  &nbsp;&nbsp;
+  <button onclick="window.close()" style="padding:8px 20px;font-size:13px;cursor:pointer;
+    background:#f3f4f6;border:1px solid #ccc;border-radius:6px">Close</button>
+</div></body></html>`;
 
-  const w = window.open('','_blank','width=900,height=700,scrollbars=yes');
+  const w=window.open('','_blank','width=960,height=720,scrollbars=yes');
   w.document.write(body);
   w.document.close();
 }
+
 function apAssignments(t) {
   const offs = appState.officials||[];
   const tournList = appState.tournaments||[];
@@ -1566,8 +1562,36 @@ function apAssignments(t) {
     </select>
   </div>`;
 
-  /* Officials warning */
-  if(!offs.length) h += `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);
+  /* GC: show an Add Off-Court Official widget inline */
+  if(loginRole==='gym') {
+    h += `<div style="background:var(--surface2);border:1px solid rgba(249,115,22,.3);
+      border-radius:7px;padding:10px 14px;margin-bottom:12px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+        color:var(--orange);margin-bottom:8px">+ Add Off-Court Official</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Name</div>
+          <input id="gc_offName" placeholder="Full name"
+            style="width:100%;background:var(--bg);border:1.5px solid var(--border);
+            border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
+            onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Phone (optional)</div>
+          <input id="gc_offPhone" placeholder="613-555-0100"
+            style="width:100%;background:var(--bg);border:1.5px solid var(--border);
+            border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
+            onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
+        </div>
+        <button class="ap-btn ap-btn-primary" onclick="addOffCourtOfficial()"
+          style="font-size:11px;white-space:nowrap;padding:7px 14px">
+          &#x2795; Add
+        </button>
+      </div>
+    </div>`;
+  }
+  /* Officials warning (for admin only - GC has inline add above) */
+  if(!offs.length && loginRole!=='gym') h += `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);
     border-radius:7px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--orange)">
     &#9888; No officials added yet. Go to the Officials tab to add them first.</div>`;
 
@@ -1739,7 +1763,6 @@ function openEditTournament(tId) {
       <label>Dates</label><input id="et_dt" value="${t.dates||''}" placeholder="e.g. Apr 11\u201312, 2026">
       <label>Location</label><input id="et_lc" value="${t.location||''}">
       <label>Host / Subtitle</label><input id="et_hs" value="${t.host||''}">
-      <label>Admin PIN</label><input id="et_pn" value="${t.pin||'128976'}" maxlength="10">
       <label style="grid-column:1/-1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
         <input type="checkbox" id="et_cd" ${t.showCapDiff?'checked':''} style="width:16px;height:16px;accent-color:var(--orange)">
         <span>
@@ -1763,7 +1786,6 @@ function submitEditTournament(tId) {
   t.dates    = document.getElementById('et_dt').value.trim();
   t.location = document.getElementById('et_lc').value.trim();
   t.host     = document.getElementById('et_hs').value.trim();
-  t.pin         = document.getElementById('et_pn').value.trim()||t.pin;
   t.showCapDiff = document.getElementById('et_cd')?.checked||false;
   syncToCloud(); closeModal();
   /* Re-render everything so Capped Diff column appears/disappears immediately */
@@ -2008,6 +2030,23 @@ function openLoginModal(role) {
   setTimeout(()=>document.getElementById('pinInput').focus(),80);
 }
 function closePinModal() { document.getElementById('pinModal').className='modal-overlay'; }
+function addOffCourtOfficial() {
+  const name = document.getElementById('gc_offName')?.value.trim();
+  if(!name) return showToast('Enter a name', true);
+  if(!appState.officials) appState.officials=[];
+  appState.officials.push({
+    id:'o'+Date.now(),
+    role:'Off-Court Official',
+    name,
+    phone: document.getElementById('gc_offPhone')?.value.trim()||'',
+    email:''
+  });
+  document.getElementById('gc_offName').value='';
+  document.getElementById('gc_offPhone').value='';
+  saveLocal(); syncToCloud();
+  renderAdminPanel();
+  showToast('✓ Off-Court Official added');
+}
 function saveGCPin() {
   const val = document.getElementById('gcPinInput')?.value.trim();
   if(!val) return showToast('Enter a PIN first', true);
