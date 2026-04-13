@@ -1150,7 +1150,7 @@ function apTournaments() {
     h+=`<div class="ap-item${active?' ap-item-active':''}">
       <div class="ap-item-info">
         <div class="ap-item-name">${t.name}</div>
-        <div class="ap-item-sub">${t.division} ${t.stream} ${t.gender} \u00B7 ${t.dates}</div>
+        <div class="ap-item-sub">${t.division} ${t.stream} ${t.gender} \u00B7 ${t.dates}</div>${t.gymCaptainEmail?`<div style="font-size:11px;color:var(--muted);margin-top:2px">&#x1F6A9; ${t.gymCaptainEmail}</div>`:''}
         ${active?'<span class="ap-badge">Active</span>':''}
       </div>
       <div class="ap-item-actions">
@@ -1165,8 +1165,9 @@ function apTournaments() {
   h += `<div style="border-top:2px solid var(--border);margin-top:18px;padding-top:16px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
       text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:10px">
-      &#x1F511; PIN Settings
+      &#x1F511; Default Gym Captain PIN
     </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Fallback PIN when no tournament-specific PIN is set. Set per-tournament via &#x270F;&nbsp;Edit.</div>
     <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
       <div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
@@ -1591,9 +1592,7 @@ function apAssignments(t) {
     </div>`;
   }
   /* Officials warning (for admin only - GC has inline add above) */
-  if(!offs.length && loginRole!=='gym') h += `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);
-    border-radius:7px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--orange)">
-    &#9888; No officials added yet. Go to the Officials tab to add them first.</div>`;
+  /* No warning - referees not required, GC can add off-court officials inline */
 
   const offOpts=(sel,role)=>{
     /* Gym Captain -> filter by 'Gym Captain'; all off-court roles -> filter by 'Off-Court Official' */
@@ -1763,6 +1762,16 @@ function openEditTournament(tId) {
       <label>Dates</label><input id="et_dt" value="${t.dates||''}" placeholder="e.g. Apr 11\u201312, 2026">
       <label>Location</label><input id="et_lc" value="${t.location||''}">
       <label>Host / Subtitle</label><input id="et_hs" value="${t.host||''}">
+      <div>
+        <label>&#x1F6A9; Gym Captain PIN</label>
+        <input id="et_gc" value="${t.gymCaptainPin||''}" placeholder="e.g. 1234" maxlength="10" style="letter-spacing:3px;font-weight:700">
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">PIN Gym Captains use to log in for this tournament</div>
+      </div>
+      <div>
+        <label>&#x2709; Gym Captain Email</label>
+        <input id="et_ge" value="${t.gymCaptainEmail||''}" placeholder="gc@email.com" type="email">
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">Contact email for the Gym Captain</div>
+      </div>
       <label style="grid-column:1/-1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
         <input type="checkbox" id="et_cd" ${t.showCapDiff?'checked':''} style="width:16px;height:16px;accent-color:var(--orange)">
         <span>
@@ -1786,7 +1795,9 @@ function submitEditTournament(tId) {
   t.dates    = document.getElementById('et_dt').value.trim();
   t.location = document.getElementById('et_lc').value.trim();
   t.host     = document.getElementById('et_hs').value.trim();
-  t.showCapDiff = document.getElementById('et_cd')?.checked||false;
+  t.showCapDiff     = document.getElementById('et_cd')?.checked||false;
+  t.gymCaptainPin   = document.getElementById('et_gc')?.value.trim()||'';
+  t.gymCaptainEmail = document.getElementById('et_ge')?.value.trim()||'';
   syncToCloud(); closeModal();
   /* Re-render everything so Capped Diff column appears/disappears immediately */
   render();
@@ -2057,7 +2068,8 @@ function saveGCPin() {
 }
 function tryLogin() {
   const v=document.getElementById('pinInput').value.trim();
-  const gcPin = appState.gymCaptainPin||'0000';
+  const activeTourney = getActive();
+  const gcPin = (activeTourney&&activeTourney.gymCaptainPin) ? activeTourney.gymCaptainPin : (appState.gymCaptainPin||'0000');
   /* Admin PIN is static: 128976 — never changes */
   if(v===PIN){
     isAdmin=true; loginRole='admin';
