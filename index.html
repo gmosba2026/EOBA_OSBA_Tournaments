@@ -131,7 +131,7 @@ tr.s5{border-left:3px solid var(--rank5)}
 .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:11px;padding:14px}
 .bgame{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--gold);border-radius:7px;padding:13px 15px}
 .bround{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gold);margin-bottom:4px}
-.btime{font-size:11px;color:var(--muted);margin-bottom:9px}
+.btime{font-size:11px;color:var(--muted);margin-bottom:9px;line-height:1.6}
 .bteam{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px}
 .bteam:last-of-type{border-bottom:none}
 .bteam.winner{color:var(--green)}
@@ -548,6 +548,52 @@ function updateLogo(tId, tmId, logo) {
 }
 
 // ── ROSTER CRUD ──
+function downloadRosterTemplate() {
+  const rows = [
+    'jersey_number,first_name,last_name,type',
+    '10,Jane,Smith,player',
+    '12,Sarah,Jones,player',
+    ',Mike,Brown,coach',
+    ',Lisa,Wilson,assistant coach',
+  ];
+  const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'roster-template.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importRosterCSV(event, tId, tmId) {
+  const file = event.target.files[0]; if(!file) return;
+  const t = appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const fr = new FileReader();
+  fr.onload = e => {
+    const lines = e.target.result.split('\n').map(l=>l.trim()).filter(l=>l);
+    let added=0, skipped=0;
+    if(!t.rosters) t.rosters={};
+    if(!t.rosters[tmId]) t.rosters[tmId]=[];
+    lines.forEach((line,i)=>{
+      if(i===0 && line.toLowerCase().includes('first_name')) return; /* skip header */
+      const cols = line.split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+      const [jersey, first, last, type] = cols;
+      if(!first && !last) return;
+      const name = [first,last].filter(Boolean).join(' ');
+      const role = type ? type.toLowerCase() : 'player';
+      t.rosters[tmId].push({
+        id: 'p'+Date.now()+Math.random().toString(36).slice(2,5),
+        name,
+        number: jersey||'',
+        role: role
+      });
+      added++;
+    });
+    event.target.value='';
+    syncToCloud(); renderAdminPanel();
+    showToast(`Imported ${added} roster entries \u2713`);
+  };
+  fr.readAsText(file);
+}
 function addPlayer(tId, tmId, p) {
   const t = appState.tournaments.find(t => t.id === tId); if (!t) return;
   if (!t.rosters) t.rosters = {};
@@ -1045,6 +1091,7 @@ function apTournaments() {
       </div>
       <div class="ap-item-actions">
         ${!active?`<button class="ap-btn ap-btn-sm" onclick="setActive('${t.id}');renderAdminPanel()">Set Active</button>`:''}
+        <button class="ap-btn ap-btn-sm" onclick="openEditTournament('${t.id}')">&#x270F; Edit</button>
         ${t.id!=='eoba_u13_2026'?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmDeleteT('${t.id}')">Delete</button>`:''}
       </div>
     </div>`;
@@ -1079,7 +1126,13 @@ function apRosters(t) {
   if(!t.teams.length) return '<div class="ap-empty">Add teams first</div>';
   const selId=window._rTmId&&t.teams.find(tm=>tm.id===window._rTmId)?window._rTmId:t.teams[0].id;
   window._rTmId=selId;
-  let h=`<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Select Team</label>
+  let h=`<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="ap-btn ap-btn-sm" onclick="downloadRosterTemplate()">&#x2193; CSV Template</button>
+    <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x2191; Import Roster CSV
+      <input type="file" accept=".csv" style="display:none" onchange="importRosterCSV(event,'${t.id}','${selId}')">
+    </label>
+  </div>
+  <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Select Team</label>
     <select onchange="window._rTmId=this.value;renderAdminPanel()" style="width:100%;padding:9px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
       ${t.teams.map(tm=>`<option value="${tm.id}"${tm.id===selId?' selected':''}>${tm.name}</option>`).join('')}
     </select></div>`;
@@ -1088,7 +1141,8 @@ function apRosters(t) {
   if(!roster.length) return h+'<div class="ap-empty">No players on roster yet</div>';
   h+='<div class="ap-roster-list">';
   roster.forEach((p,idx)=>{
-    h+=`<div class="ap-roster-item"><div><span style="font-weight:700">${p.name}</span>${p.number?` <span style="color:var(--muted);font-size:12px">#${p.number}</span>`:''}</div><button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removePlayer('${t.id}','${selId}',${idx})">Remove</button></div>`;
+    const roleLabel=p.role&&p.role!=='player'?`<span style="font-size:10px;background:rgba(91,138,245,.15);color:#7ba4f8;border-radius:3px;padding:1px 5px;margin-left:5px;font-weight:700;text-transform:uppercase">${p.role}</span>`:'';
+    h+=`<div class="ap-roster-item"><div><span style="font-weight:700">${p.name}</span>${p.number?` <span style="color:var(--muted);font-size:12px">#${p.number}</span>`:''}${roleLabel}</div><button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removePlayer('${t.id}','${selId}',${idx})">Remove</button></div>`;
   });
   return h+'</div>';
 }
@@ -1313,6 +1367,43 @@ function closeModal() {
   ov.className='modal-overlay'; ov.innerHTML='';
 }
 
+function openEditTournament(tId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  openModal(`<div class="modal-box" style="max-width:540px">
+    <div class="modal-title">&#x270F; Edit Tournament</div>
+    <div class="ap-form">
+      <label>Tournament Name</label><input id="et_nm" value="${t.name||''}" placeholder="e.g. EOBA Spring Playoffs">
+      <label>Display Label (dropdown)</label><input id="et_lb" value="${t.label||''}" placeholder="e.g. U13 AAA Boys">
+      <label>Division</label><input id="et_dv" value="${t.division||''}">
+      <label>Stream</label><input id="et_st" value="${t.stream||''}">
+      <label>Gender</label><select id="et_gn">
+        <option${t.gender==='Boys'?' selected':''}>Boys</option>
+        <option${t.gender==='Girls'?' selected':''}>Girls</option>
+        <option${t.gender==='Mixed'?' selected':''}>Mixed</option>
+      </select>
+      <label>Dates</label><input id="et_dt" value="${t.dates||''}" placeholder="e.g. Apr 11\u201312, 2026">
+      <label>Location</label><input id="et_lc" value="${t.location||''}">
+      <label>Host / Subtitle</label><input id="et_hs" value="${t.host||''}">
+      <label>Admin PIN</label><input id="et_pn" value="${t.pin||'128976'}" maxlength="10">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditTournament('${tId}')">&#x2713; Save</button>
+    </div></div>`);
+}
+function submitEditTournament(tId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  t.name     = document.getElementById('et_nm').value.trim()||t.name;
+  t.label    = document.getElementById('et_lb').value.trim()||t.label;
+  t.division = document.getElementById('et_dv').value.trim()||t.division;
+  t.stream   = document.getElementById('et_st').value.trim()||t.stream;
+  t.gender   = document.getElementById('et_gn').value;
+  t.dates    = document.getElementById('et_dt').value.trim();
+  t.location = document.getElementById('et_lc').value.trim();
+  t.host     = document.getElementById('et_hs').value.trim();
+  t.pin      = document.getElementById('et_pn').value.trim()||t.pin;
+  syncToCloud(); closeModal(); renderAdminPanel(); renderTournSelector(); renderHeader(getActive()); showToast('Tournament updated \u2713');
+}
 function openCreateT() {
   openModal(`<div class="modal-box"><div class="modal-title">New Tournament</div>
     <div class="ap-form">
@@ -1399,21 +1490,32 @@ function confirmRemoveTeam(tId,tmId) {
 }
 
 function openAddPlayerModal(tId,tmId) {
-  openModal(`<div class="modal-box"><div class="modal-title">Add Player</div>
-    <div class="ap-form">
-      <label>Player Name</label><input id="f_pn" placeholder="First Last">
-      <label>Jersey # (optional)</label><input id="f_pj" type="number" placeholder="#" min="0" max="99">
+  openModal(`<div class="modal-box"><div class="modal-title">Add Roster Member</div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>First Name</label><input id="f_pfn" placeholder="First" autofocus></div>
+      <div><label>Last Name</label><input id="f_pln" placeholder="Last"></div>
+      <div><label>Jersey # (optional)</label><input id="f_pj" type="number" placeholder="#" min="0" max="99"></div>
+      <div><label>Type</label><select id="f_pr">
+        <option value="player">Player</option>
+        <option value="coach">Coach</option>
+        <option value="assistant coach">Assistant Coach</option>
+        <option value="manager">Manager</option>
+      </select></div>
     </div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-ok" onclick="submitAddPlayer('${tId}','${tmId}')">Add</button>
     </div></div>`);
-  setTimeout(()=>document.getElementById('f_pn')?.focus(),80);
+  setTimeout(()=>document.getElementById('f_pfn')?.focus(),80);
 }
 function submitAddPlayer(tId,tmId) {
-  const nm=document.getElementById('f_pn').value.trim(); if(!nm) return showToast('Enter name',true);
+  const fn=document.getElementById('f_pfn').value.trim();
+  const ln=document.getElementById('f_pln').value.trim();
+  if(!fn&&!ln) return showToast('Enter a name',true);
+  const nm=[fn,ln].filter(Boolean).join(' ');
   const num=document.getElementById('f_pj').value.trim();
-  addPlayer(tId,tmId,{name:nm,number:num}); closeModal(); showToast('Player added \u2713');
+  const role=document.getElementById('f_pr').value;
+  addPlayer(tId,tmId,{name:nm,number:num,role}); closeModal(); showToast('Added \u2713');
 }
 
 function openAddGame(tId) {
@@ -1476,13 +1578,21 @@ function openEditGame(tId, gId) {
   const tOpts=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.home?' selected':''}>${tm.name}</option>`).join('');
   const tOptsA=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.away?' selected':''}>${tm.name}</option>`).join('');
   const cOpts=courtOpts(t,g.court||'');
-  openModal(`<div class="modal-box" style="max-width:560px"><div class="modal-title">&#x270F; Edit Game</div>
+  const offs=t.officials||[];
+  const offOpts=(sel)=>'<option value="">-- None --</option>'+offs.map(o=>`<option value="${o.id}"${o.id===sel?' selected':''}>${o.role}: ${o.name}</option>`).join('');
+  const go=g.officials||{};
+  openModal(`<div class="modal-box" style="max-width:580px"><div class="modal-title">&#x270F; Edit Game</div>
     <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div style="grid-column:1/-1"><label>Court / Gym</label><select id="eg_c" style="font-size:13px">${cOpts}</select></div>
       <div><label>Day</label><input id="eg_d" value="${g.day||''}" placeholder="e.g. Sat, Apr 11"></div>
       <div><label>Time</label><input id="eg_t" value="${g.time||''}" placeholder="e.g. 10:00 AM"></div>
       <div><label>Home Team</label><select id="eg_h">${tOpts}</select></div>
       <div><label>Away Team</label><select id="eg_a">${tOptsA}</select></div>
+      <div style="grid-column:1/-1;border-top:1px solid var(--border);margin-top:4px;padding-top:10px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Off-Court Officials</div>
+      <div><label>&#x1F6A9; Gym Captain</label><select id="eg_gc">${offOpts(go.gc)}</select></div>
+      <div><label>&#x1F4CB; Scorekeeper</label><select id="eg_sk">${offOpts(go.sk)}</select></div>
+      <div><label>&#x23F1; Shot Clock</label><select id="eg_sc">${offOpts(go.sc)}</select></div>
+      <div><label>&#x1F4DD; Game Sheet</label><select id="eg_gs">${offOpts(go.gs)}</select></div>
     </div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -1501,6 +1611,12 @@ function submitEditGame(tId, gId) {
   if(!d||!tm) return showToast('Enter day and time',true);
   if(h===a) return showToast('Teams must be different',true);
   g.day=d; g.time=tm; g.court=c; g.home=h; g.away=a;
+  g.officials={
+    gc:document.getElementById('eg_gc')?.value||'',
+    sk:document.getElementById('eg_sk')?.value||'',
+    sc:document.getElementById('eg_sc')?.value||'',
+    gs:document.getElementById('eg_gs')?.value||''
+  };
   syncToCloud(); closeModal(); render(); renderAdminPanel(); showToast('Game updated \u2713');
 }
 function confirmRemoveGame(tId,gId) {
