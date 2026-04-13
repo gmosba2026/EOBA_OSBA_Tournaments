@@ -1377,6 +1377,91 @@ function removeOfficial(oId) {
   syncToCloud(); renderAdminPanel();
 }
 
+function printAllAssignments() {
+  const offs = appState.officials||[];
+  const offName = id => { const o=offs.find(x=>x.id===id); return o?o.name:''; };
+
+  let body = `<html><head><meta charset="utf-8">
+    <title>Officials Assignments</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #000; margin: 20px; }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .subtitle { font-size: 11px; color: #666; margin-bottom: 18px; }
+      .tourn-header { font-size: 15px; font-weight: bold; color: #f97316;
+        border-bottom: 2px solid #f97316; padding-bottom: 3px; margin: 18px 0 10px; }
+      .day-header { font-size: 10px; font-weight: bold; text-transform: uppercase;
+        letter-spacing: 1px; color: #888; border-bottom: 1px solid #ddd;
+        padding: 4px 0; margin: 10px 0 6px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+      th { background: #f3f4f6; text-align: left; padding: 5px 8px; font-size: 10px;
+        text-transform: uppercase; letter-spacing: .5px; border: 1px solid #ddd; }
+      td { padding: 5px 8px; border: 1px solid #ddd; vertical-align: top; }
+      .playoff { background: #fffbeb; }
+      .no-asgn { color: #aaa; font-style: italic; }
+      @media print {
+        button { display: none; }
+        .page-break { page-break-before: always; }
+      }
+    </style></head><body>
+    <h1>Officials Assignments</h1>
+    <div class="subtitle">Generated ${new Date().toLocaleString()}</div>`;
+
+  const tournList = appState.tournaments||[];
+  tournList.forEach((tourn, tIdx) => {
+    const allGames = [
+      ...(tourn.games||[]).map(g=>({...g,isPO:false})),
+      ...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))
+    ];
+    if(!allGames.length) return;
+
+    body += `${tIdx>0?'<div class=\"page-break\"></div>':''}
+      <div class="tourn-header">${tourn.label||tourn.name}</div>`;
+
+    const byDay={};
+    allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
+
+    Object.keys(byDay).forEach(day=>{
+      body += `<div class="day-header">${day}</div>
+        <table>
+          <thead><tr>
+            <th>Game</th><th>Time</th><th>Location</th>
+            <th>Gym Captain</th><th>Scorekeeper</th><th>Shot Clock</th><th>Game Sheet</th>
+          </tr></thead><tbody>`;
+
+      byDay[day].forEach(g=>{
+        const go = g.officials||{};
+        const cname = courtName(tourn, g.court)||'';
+        const caddr = courtAddr(tourn, g.court)||'';
+        const matchup = g.isPO
+          ? (g.round||g.id)
+          : (tName(tourn,g.home)+' vs '+tName(tourn,g.away));
+        const rowClass = g.isPO ? 'class="playoff"' : '';
+        const na = '<span class="no-asgn">—</span>';
+        body += `<tr ${rowClass}>
+          <td><strong>${matchup}</strong></td>
+          <td>${g.time||''}</td>
+          <td>${cname}${caddr?'<br><small style="color:#888">'+caddr+'</small>':''}</td>
+          <td>${offName(go.gc)||na}</td>
+          <td>${offName(go.sk)||na}</td>
+          <td>${offName(go.sc)||na}</td>
+          <td>${offName(go.gs)||na}</td>
+        </tr>`;
+      });
+      body += '</tbody></table>';
+    });
+  });
+
+  body += `<div style="margin-top:24px;text-align:center">
+    <button onclick="window.print()" style="padding:8px 24px;font-size:13px;cursor:pointer;
+      background:#f97316;color:#fff;border:none;border-radius:6px">&#x1F5A8; Print</button>
+    &nbsp;
+    <button onclick="window.close()" style="padding:8px 24px;font-size:13px;cursor:pointer">Close</button>
+  </div></body></html>`;
+
+  const w = window.open('','_blank','width=900,height=700,scrollbars=yes');
+  w.document.write(body);
+  w.document.close();
+}
 function apAssignments(t) {
   const offs = appState.officials||[];
   const tournList = appState.tournaments||[];
@@ -1387,7 +1472,11 @@ function apAssignments(t) {
   if(!tourn) return '<div class="ap-empty">No tournaments available.</div>';
 
   /* Tournament selector */
-  let h = `<div style="margin-bottom:14px">
+  let h = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--silver)">Officials Assignments</div>
+    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()" style="font-size:11px;font-weight:700;white-space:nowrap">&#x1F4CB; Print / Export All</button>
+  </div>
+  <div style="margin-bottom:14px">
     <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
       color:var(--muted);display:block;margin-bottom:5px">Select Tournament</label>
     <select onchange="asgnTournId=this.value;renderAdminPanel()"
@@ -1593,8 +1682,11 @@ function submitEditTournament(tId) {
   t.host     = document.getElementById('et_hs').value.trim();
   t.pin         = document.getElementById('et_pn').value.trim()||t.pin;
   t.showCapDiff = document.getElementById('et_cd')?.checked||false;
-  syncToCloud(); closeModal(); renderAdminPanel(); renderTournSelector(); renderHeader(getActive());
-  renderStandings(getActive(), calcStandings(getActive())); showToast('Tournament updated \u2713');
+  syncToCloud(); closeModal();
+  /* Re-render everything so Capped Diff column appears/disappears immediately */
+  render();
+  renderAdminPanel();
+  showToast('Tournament updated ✓');
 }
 function openCreateT() {
   openModal(`<div class="modal-box"><div class="modal-title">New Tournament</div>
