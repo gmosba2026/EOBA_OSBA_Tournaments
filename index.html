@@ -35,6 +35,11 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font
 .banner-right{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .bbtn{padding:5px 12px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;white-space:nowrap;transition:all .15s}
 #btnLogin{background:var(--orange);color:#fff;border:1px solid var(--orange);font-weight:800}
+.bbtn-admin{background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.5);font-weight:700}
+.bbtn-admin:hover{background:rgba(249,115,22,.3)}
+.bbtn-gym{background:rgba(91,138,245,.15);color:#7ba4f8;border:1px solid rgba(91,138,245,.4);font-weight:700}
+.bbtn-gym:hover{background:rgba(91,138,245,.3)}
+.bbtn-logout{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.35)}
 #btnLogin:hover{background:rgba(249,115,22,.28)}
 #btnLogout{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.35);display:none}
 #btnLogout:hover{background:rgba(239,68,68,.25)}
@@ -225,15 +230,7 @@ tr.s5{border-left:3px solid var(--rank5)}
   .hlogo:last-child{display:none}
 }
 
-/* ── LOGIN CARD ── */
-#loginCard{background:rgba(249,115,22,.12);border:2px solid var(--orange);border-radius:10px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;box-shadow:0 0 20px rgba(249,115,22,.15)}
 
-.lcard-left{display:flex;align-items:center;gap:14px;flex:1}
-.lcard-icons{display:flex;gap:4px;font-size:22px;flex-shrink:0}
-.lcard-icon{display:inline-block}
-.lcard-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:1px;color:var(--orange)}
-.lcard-sub{font-size:12px;color:var(--muted);margin-top:2px}
-.lcard-btn{background:var(--orange);color:#fff;border:none;border-radius:7px;padding:11px 26px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background .15s}
 .lcard-btn:hover{background:#c2580e}
 </style>
 </head>
@@ -249,9 +246,11 @@ tr.s5{border-left:3px solid var(--rank5)}
   </div>
   <div class="banner-right">
     <button class="bbtn" id="refreshBtn">&#x21BB; Refresh</button>
-    <button class="bbtn" id="btnManage">&#x2699; Manage</button>
-    <button class="bbtn" id="btnLogin">&#x1F512; Admin Login</button>
-    <button class="bbtn" id="btnLogout">&#x1F513; Lock</button>
+    <button class="bbtn bbtn-admin" id="btnAdminLogin" onclick="openLoginModal('admin')" title="Administrator Login">&#x1F4BB; Admin</button>
+    <button class="bbtn bbtn-gym" id="btnGymLogin" onclick="openLoginModal('gym')" title="Gym Captain Login">&#x1F6A9; Gym Captain</button>
+    <button class="bbtn" id="btnManage" style="display:none">&#x2699; Manage</button>
+    <button class="bbtn" id="btnLogin" style="display:none">&#x1F512; Login</button>
+    <button class="bbtn bbtn-logout" id="btnLogout" style="display:none">&#x1F513; Logout</button>
   </div>
 </div>
 
@@ -278,20 +277,7 @@ tr.s5{border-left:3px solid var(--rank5)}
 
 <main>
 
-<!-- ═══ ADMIN / GYM CAPTAIN LOGIN ═══ -->
-<div id="loginCard">
-  <div class="lcard-left">
-    <div class="lcard-icons">
-      <span class="lcard-icon" style="font-size:34px;line-height:1">&#x1F511;</span>
-      <span class="lcard-icon" style="font-size:34px;line-height:1">&#x1F512;</span>
-    </div>
-    <div>
-      <div class="lcard-title">&#x26A1; Administrator &amp; Gym Captain Access</div>
-      <div class="lcard-sub">Enter your PIN to unlock score entry, schedule editing &amp; admin tools</div>
-    </div>
-  </div>
-  <button class="lcard-btn" onclick="openPinModal()">&#x1F511; Login</button>
-</div>
+
 
   <section class="card">
     <div class="card-header">
@@ -1638,8 +1624,19 @@ function confirmRemoveGame(tId,gId) {
 }
 
 // ── AUTH ──
-function openPinModal() {
-  document.getElementById('pinInput').value=''; document.getElementById('pinError').textContent='';
+function openPinModal() { openLoginModal('admin'); }
+function openLoginModal(role) {
+  const titles={admin:'\u1F4BB Administrator Access', gym:'\u1F6A9 Gym Captain Access'};
+  const subs={
+    admin:'Enter your PIN to unlock tournament management, schedule editing and scoring.',
+    gym:'Enter your Gym Captain PIN to unlock score entry for your assigned games.'
+  };
+  const el=document.getElementById('pinModalRole');
+  const sub=document.getElementById('pinModalSub');
+  if(el) el.textContent=role==='gym'?'\ud83d\udea9 Gym Captain':'\ud83d\udcbb Administrator';
+  if(sub) sub.textContent=subs[role]||subs.admin;
+  document.getElementById('pinInput').value='';
+  document.getElementById('pinError').textContent='';
   document.getElementById('pinModal').className='modal-overlay open';
   setTimeout(()=>document.getElementById('pinInput').focus(),80);
 }
@@ -1659,23 +1656,23 @@ function logout(){isAdmin=false;saveLocal();closeAdminPanel();render();showToast
 
 function updateBanner() {
   const bn=document.getElementById('modeBanner'), lb=document.getElementById('modeLabel');
-  const lI=document.getElementById('btnLogin'), lO=document.getElementById('btnLogout'), mg=document.getElementById('btnManage');
+  const bA=document.getElementById('btnAdminLogin'), bG=document.getElementById('btnGymLogin');
+  const lO=document.getElementById('btnLogout'), mg=document.getElementById('btnManage');
   if(!bn) return;
-  const lc=document.getElementById('loginCard');
   if(isAdmin){
     bn.className='admin-mode';
-    lb.textContent='⚡ Gym Captain / Admin Mode Active';
-    if(lI) lI.style.display='none';
+    lb.textContent='⚡ Admin / Gym Captain Mode Active';
+    if(bA) bA.style.display='none';
+    if(bG) bG.style.display='none';
     if(lO) lO.style.display='inline-block';
     if(mg) mg.style.display='inline-block';
-    if(lc) lc.style.setProperty('display','none','important');
   } else {
     bn.className='view-mode';
     lb.textContent='View Only Mode';
-    if(lI) lI.style.display='inline-block';
+    if(bA) bA.style.display='inline-block';
+    if(bG) bG.style.display='inline-block';
     if(lO) lO.style.display='none';
     if(mg) mg.style.display='none';
-    if(lc) { lc.style.removeProperty('display'); lc.style.display='flex'; }
   }
 }
 
@@ -1779,11 +1776,6 @@ init();
     isAdmin=!!d.isAdmin;
   }catch(e){ isAdmin=false; }
   updateBanner();
-  /* Force loginCard visible if not admin */
-  if(!isAdmin){
-    const lc=document.getElementById('loginCard');
-    if(lc){ lc.style.display='flex'; lc.style.visibility='visible'; lc.style.opacity='1'; }
-  }
 })();
 </script>
 </body>
