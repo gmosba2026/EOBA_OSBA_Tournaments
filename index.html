@@ -1372,119 +1372,147 @@ function removeOfficial(oId) {
 }
 
 function apAssignments(t) {
-  if(!t) return '<div class="ap-empty">No active tournament</div>';
-  const offs = t.officials||[];
-  if(!offs.length) return `<div class="ap-empty">Add officials in the Officials tab first, then assign them here.</div>`;
-  const allGames = [
-    ...(t.games||[]).map(g=>({...g, isPO:false})),
-    ...(t.playoffGames||[]).map(g=>({...g, isPO:true, home:null, away:null}))
-  ];
-  if(!allGames.length) return '<div class="ap-empty">No games scheduled yet.</div>';
+  /* Officials come from the GLOBAL pool */
+  const offs = appState.officials||[];
+
+  /* Show a warning if no officials added yet, but still render games */
+  const noOffsMsg = !offs.length
+    ? `<div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.4);border-radius:7px;
+        padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--orange)">
+        &#9888; No officials added yet. Add officials in the Officials tab first.
+       </div>` : '';
 
   const offOpts=(sel,role)=>{
-    const filtered = role ? offs.filter(o=>o.role===role) : offs;
-    return '<option value="">--</option>'+filtered.map(o=>
-      `<option value="${o.id}"${(sel||'')=== o.id?' selected':''}>${o.name}</option>`
-    ).join('');
+    const pool = role ? offs.filter(o=>o.role===role) : offs;
+    return '<option value="">-- Unassigned --</option>'
+      + pool.map(o=>`<option value="${o.id}"${(sel||'')=== o.id?' selected':''}>${o.name}</option>`).join('');
   };
 
-  // Group by day
-  const byDay={};
-  allGames.forEach(g=>{
-    const day=g.day||'TBD';
-    if(!byDay[day]) byDay[day]=[];
-    byDay[day].push(g);
-  });
+  /* Build across ALL tournaments */
+  let h = noOffsMsg;
+  let anyGames = false;
 
-  let h='';
-  Object.keys(byDay).forEach(day=>{
-    h+=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;
-      text-transform:uppercase;letter-spacing:1.5px;color:var(--orange);padding:8px 0 4px;
-      border-bottom:1px solid var(--border);margin-bottom:8px">${day}</div>`;
+  appState.tournaments.forEach(tourn=>{
+    const rrGames    = (tourn.games||[]).map(g=>({...g, isPO:false, _t:tourn}));
+    const poGames    = (tourn.playoffGames||[]).map(g=>({...g, isPO:true,  _t:tourn}));
+    const allGames   = [...rrGames, ...poGames];
+    if(!allGames.length) return;
+    anyGames = true;
 
-    byDay[day].forEach(g=>{
-      const go=g.officials||{};
-      const label = g.isPO
-        ? `<span style="color:var(--gold);font-weight:700">${g.round}</span>`
-        : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
-      const gameId = g.isPO ? `'${g.id}'` : g.id;
-      const saveCall = g.isPO
-        ? `savePlayoffOfficials('${t.id}','${g.id}')`
-        : `saveGameOfficials('${t.id}',${g.id})`;
+    /* Tournament header */
+    h += `<div style="background:rgba(249,115,22,.08);border-left:4px solid var(--orange);
+      border-radius:0 6px 6px 0;padding:8px 12px;margin:14px 0 8px;
+      font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;
+      text-transform:uppercase;letter-spacing:1px;color:var(--orange)">
+      ${tourn.label||tourn.name}
+    </div>`;
 
-      h+=`<div style="background:var(--surface2);border:1px solid ${g.isPO?'rgba(245,197,24,.3)':'var(--border)'};
-        border-left:3px solid ${g.isPO?'var(--gold)':'var(--orange)'};
-        border-radius:7px;padding:10px 12px;margin-bottom:8px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
-          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px">${label}</div>
-          <div style="font-size:11px;color:var(--muted)">${g.time||''}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:8px">
-          <div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
-              color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
-            <select id="asgn_gc_${g.isPO?'po_':''  }${g.id}" style="width:100%;font-size:12px;
-              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
-              color:var(--text);padding:5px 7px">
-              ${offOpts(go.gc,'Gym Captain')}
-            </select>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
-              color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
-            <select id="asgn_sk_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
-              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
-              color:var(--text);padding:5px 7px">
-              ${offOpts(go.sk,'Scorekeeper')}
-            </select>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
-              color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
-            <select id="asgn_sc_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
-              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
-              color:var(--text);padding:5px 7px">
-              ${offOpts(go.sc,'Shot Clock')}
-            </select>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
-              color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
-            <select id="asgn_gs_${g.isPO?'po_':''}${g.id}" style="width:100%;font-size:12px;
-              background:var(--bg);border:1.5px solid var(--border);border-radius:5px;
-              color:var(--text);padding:5px 7px">
-              ${offOpts(go.gs,'Game Sheet')}
-            </select>
-          </div>
-        </div>
-        <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}"
-          style="font-size:11px">&#x2713; Save Assignments</button>
-      </div>`;
+    /* Group by day — sort RR before Playoffs */
+    const byDay={};
+    allGames.forEach(g=>{
+      const d=g.day||'TBD';
+      if(!byDay[d]) byDay[d]=[];
+      byDay[d].push(g);
     });
+
+    Object.keys(byDay).forEach(day=>{
+      h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;
+        color:var(--muted);padding:4px 0 3px;margin-bottom:6px;border-bottom:1px solid var(--border)">
+        ${day}</div>`;
+
+      byDay[day].forEach(g=>{
+        const go      = g.officials||{};
+        const cname   = courtName(tourn, g.court);
+        const caddr   = courtAddr(tourn, g.court);
+        const murl    = caddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(caddr)}` : '';
+        const uid     = g.isPO ? `po_${g.id}_${tourn.id}` : `${g.id}_${tourn.id}`;
+        const saveCall= g.isPO
+          ? `savePlayoffOfficials('${tourn.id}','${g.id}')`
+          : `saveGameOfficials('${tourn.id}',${g.id})`;
+
+        /* Game header line */
+        const matchup = g.isPO
+          ? `<span style="color:var(--gold);font-weight:800">&#x1F3C6; ${g.round||g.id}</span>`
+          : `<strong>${tName(tourn,g.home)}</strong> <span style="color:var(--muted);font-size:11px">vs</span> <strong>${tName(tourn,g.away)}</strong>`;
+
+        h += `<div style="background:var(--surface2);border:1px solid ${g.isPO?'rgba(245,197,24,.25)':'var(--border)'};
+          border-left:3px solid ${g.isPO?'var(--gold)':'rgba(249,115,22,.5)'};
+          border-radius:7px;padding:10px 14px;margin-bottom:8px">
+
+          <!-- Game info row -->
+          <div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:10px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px">${matchup}</div>
+            <div style="text-align:right;font-size:11px;color:var(--muted);line-height:1.7">
+              ${g.time?`<div>&#x1F55B; ${g.time}</div>`:''}
+              ${cname?`<div>&#x1F4CD; ${cname}${murl?` <a href="${murl}" target="_blank"
+                style="color:var(--orange);border:1px solid rgba(249,115,22,.4);border-radius:3px;
+                padding:0 5px;text-decoration:none;margin-left:4px;font-size:10px">Map</a>`:''}</div>`:''}
+              ${caddr?`<div style="font-size:10px;color:var(--border)">${caddr}</div>`:''}
+            </div>
+          </div>
+
+          <!-- Assignment dropdowns -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+            <div>
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
+              <select id="asgn_gc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
+                ${offOpts(go.gc,'Gym Captain')}
+              </select>
+            </div>
+            <div>
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
+              <select id="asgn_sk_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
+                ${offOpts(go.sk,'Scorekeeper')}
+              </select>
+            </div>
+            <div>
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
+              <select id="asgn_sc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
+                ${offOpts(go.sc,'Shot Clock')}
+              </select>
+            </div>
+            <div>
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
+              <select id="asgn_gs_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">
+                ${offOpts(go.gs,'Game Sheet')}
+              </select>
+            </div>
+          </div>
+          <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}" style="font-size:11px;letter-spacing:.5px">
+            &#x2713; Save Assignments
+          </button>
+        </div>`;
+      });
+    });
+    h += '<div style="height:6px"></div>';
   });
-  return h || '<div class="ap-empty">No games to assign.</div>';
+
+  if(!anyGames) return '<div class="ap-empty">No games scheduled in any tournament yet.</div>';
+  return h;
 }
 
 function saveGameOfficials(tId, gId) {
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const g=t.games.find(x=>x.id===gId); if(!g) return;
   if(!g.officials) g.officials={};
-  g.officials.gc = document.getElementById(`asgn_gc_${gId}`)?.value||'';
-  g.officials.sk = document.getElementById(`asgn_sk_${gId}`)?.value||'';
-  g.officials.sc = document.getElementById(`asgn_sc_${gId}`)?.value||'';
-  g.officials.gs = document.getElementById(`asgn_gs_${gId}`)?.value||'';
-  syncToCloud(); showToast('Assignments saved \u2713');
+  const uid=gId+'_'+tId;
+  ['gc','sk','sc','gs'].forEach(role=>{
+    const el=document.getElementById('asgn_'+role+'_'+uid);
+    g.officials[role]=el?el.value:'';
+  });
+  syncToCloud(); showToast('Assignments saved ✓');
 }
 
 function savePlayoffOfficials(tId, pgId) {
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const pg=(t.playoffGames||[]).find(x=>x.id===pgId); if(!pg) return;
   if(!pg.officials) pg.officials={};
-  pg.officials.gc = document.getElementById(`asgn_gc_po_${pgId}`)?.value||'';
-  pg.officials.sk = document.getElementById(`asgn_sk_po_${pgId}`)?.value||'';
-  pg.officials.sc = document.getElementById(`asgn_sc_po_${pgId}`)?.value||'';
-  pg.officials.gs = document.getElementById(`asgn_gs_po_${pgId}`)?.value||'';
-  syncToCloud(); showToast('Assignments saved \u2713');
+  const uid='po_'+pgId+'_'+tId;
+  ['gc','sk','sc','gs'].forEach(role=>{
+    const el=document.getElementById('asgn_'+role+'_'+uid);
+    pg.officials[role]=el?el.value:'';
+  });
+  syncToCloud(); showToast('Assignments saved ✓');
 }
 
 function apSchedule(t) {
