@@ -408,7 +408,7 @@ const DEFAULT_T = {
 let isAdmin   = false;
 let pollTimer = null;
 let adminTab  = 'tournaments';
-let appState  = { tournaments:[], activeTournamentId:null };
+let appState  = { tournaments:[], activeTournamentId:null, officials:[] };
 
 // ── STORAGE ──
 function saveLocal() {
@@ -441,6 +441,7 @@ async function loadFromCloud() {
     if (rec.version === 2) {
       if (rec.tournaments)        appState.tournaments        = rec.tournaments;
       if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
+      if (rec.officials)          appState.officials          = rec.officials;
       /* Re-apply seed fields that cloud data may be missing */
       [DEFAULT_T, DEFAULT_T2].forEach(seed=>{
         const t=appState.tournaments.find(x=>x.id===seed.id);
@@ -1274,9 +1275,9 @@ function courtOpts(t, selId) {
 
 
 function apOfficials(t) {
-  if(!t) return '<div class="ap-empty">No active tournament</div>';
-  const offs = t.officials||[];
-  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Tournament Officials</div>`;
+  /* Officials are GLOBAL - shared across all tournaments */
+  const offs = appState.officials||[];
+  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Officials Pool <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">(shared across all tournaments)</span></div>`;
   if(offs.length) {
     const roles = ['Gym Captain','Scorekeeper','Shot Clock','Game Sheet','Referee','Other'];
     roles.forEach(role=>{
@@ -1287,12 +1288,12 @@ function apOfficials(t) {
         h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:5px">
           <div style="display:flex;align-items:center;gap:10px">
             <span style="flex:1;font-weight:700;font-size:13px">${o.name}</span>
-            <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${t.id}','${o.id}')">&#x270F;</button>
-            <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${t.id}','${o.id}')">Remove</button>
+            <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F;</button>
+            <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--muted)">
             ${o.phone?`<span>&#x1F4DE; ${o.phone}</span>`:''}
-            ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted);text-decoration:none">${o.email}</a></span>`:''}
+            ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></span>`:''}
           </div>
         </div>`;
       });
@@ -1316,26 +1317,24 @@ function apOfficials(t) {
       <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
       <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
       <div><label>Email (e-transfer)</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
-      <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addOfficial('${t.id}')">Add</button>
+      <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addOfficial()">Add</button>
     </div>
   </div>`;
   return h;
 }
 
-function addOfficial(tId) {
-  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+function addOfficial() {
   const name=document.getElementById('f_on').value.trim();
   if(!name) return showToast('Enter name',true);
-  if(!t.officials) t.officials=[];
-  t.officials.push({id:'o'+Date.now(), role:document.getElementById('f_or').value, name,
+  if(!appState.officials) appState.officials=[];
+  appState.officials.push({id:'o'+Date.now(), role:document.getElementById('f_or').value, name,
     phone:document.getElementById('f_op').value.trim(),
     email:document.getElementById('f_oe').value.trim().toLowerCase()});
   syncToCloud(); renderAdminPanel(); showToast('Official added \u2713');
 }
 
-function openEditOfficial(tId, oId) {
-  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
-  const o=(t.officials||[]).find(x=>x.id===oId); if(!o) return;
+function openEditOfficial(oId) {
+  const o=(appState.officials||[]).find(x=>x.id===oId); if(!o) return;
   openModal(`<div class="modal-box" style="max-width:480px">
     <div class="modal-title">&#x270F; Edit Official</div>
     <div class="ap-form">
@@ -1353,23 +1352,22 @@ function openEditOfficial(tId, oId) {
     </div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
-      <button class="btn-ok" onclick="submitEditOfficial('${tId}','${oId}')">&#x2713; Save</button>
+      <button class="btn-ok" onclick="submitEditOfficial('${oId}')">&#x2713; Save</button>
     </div></div>`);
   setTimeout(()=>document.getElementById('eo_name')?.focus(),80);
 }
-function submitEditOfficial(tId, oId) {
-  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
-  const o=(t.officials||[]).find(x=>x.id===oId); if(!o) return;
+function submitEditOfficial(oId) {
+  const o=(appState.officials||[]).find(x=>x.id===oId); if(!o) return;
   o.role  = document.getElementById('eo_role').value;
   o.name  = document.getElementById('eo_name').value.trim()||o.name;
   o.phone = document.getElementById('eo_phone').value.trim();
   o.email = document.getElementById('eo_email').value.trim().toLowerCase();
   syncToCloud(); closeModal(); renderAdminPanel(); showToast('Official updated \u2713');
 }
-function removeOfficial(tId, oId) {
-  const t=appState.tournaments.find(x=>x.id===tId); if(!t||!t.officials) return;
+function removeOfficial(oId) {
   if(!confirm('Remove this official?')) return;
-  t.officials=t.officials.filter(o=>o.id!==oId);
+  if(!appState.officials) return;
+  appState.officials=appState.officials.filter(o=>o.id!==oId);
   syncToCloud(); renderAdminPanel();
 }
 
