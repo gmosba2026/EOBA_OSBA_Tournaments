@@ -968,7 +968,21 @@ function renderBracket(t,st) {
   if(!defs.length){if(nEl)nEl.textContent='';bEl.innerHTML='<div style="padding:16px;color:var(--muted);font-style:italic">No playoff format for '+t.teams.length+' teams</div>';return;}
   if(!allRRDone(t)){
     if(nEl) nEl.textContent='';
-    bEl.innerHTML=`<div class="tbd-banner"><div class="tbd-title">To Be Determined</div><div class="tbd-sub">Will populate after all round-robin games are finalized</div><div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px">${defs.map(d=>`<div class="bgame" style="border-left-color:var(--border)"><div class="bround">${d.round}</div><div class="btime">${d.time}</div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div></div>`).join('')}</div></div>`;
+    bEl.innerHTML=`<div class="tbd-banner"><div class="tbd-title">To Be Determined</div><div class="tbd-sub">Will populate after all round-robin games are finalized</div><div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px">${defs.map(d=>{
+      const pg=(t.playoffGames||[]).find(x=>x.id===d.id);
+      const gTime=pg?pg.time:d.time;
+      const gDay=pg?pg.day:'';
+      const gCourt=pg?courtName(t,pg.court):'';
+      const gAddr=pg?courtAddr(t,pg.court):'';
+      const gMap=gAddr?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gAddr)}`:'';
+      const courtLine=gCourt?`<br><span style="font-size:10px">\u{1F4CD} ${gCourt}${gMap?` <a href="${gMap}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:0 5px;border-radius:3px;text-decoration:none;margin-left:2px">Map</a>`:''}</span>`:'';
+      return `<div class="bgame" style="border-left-color:var(--border)">
+        <div class="bround">${d.round}</div>
+        <div class="btime">${gDay?gDay+' \u00B7 ':''}${gTime}${courtLine}</div>
+        <div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div>
+        <div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div>
+      </div>`;
+    }).join('')}</div></div>`;
     return;
   }
   if(nEl) nEl.textContent='\u2726 Auto-filled from standings';
