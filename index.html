@@ -501,6 +501,7 @@ async function loadFromCloud() {
         if (rec.playoffScores) t.playoffScores = rec.playoffScores;
       }
     }
+    migrateOfficialRoles(); /* normalize any old roles from cloud */
     saveLocal();
   } catch(e) {}
 }
@@ -892,11 +893,11 @@ function renderOfficials(t) {
   const offs=t?(t.officials||[]):[];
   if(!offs.length){sec.style.display='none';return;}
   sec.style.display='';
-  const roles=['Gym Captain','Scorekeeper','Shot Clock','Game Sheet','Referee','Other'];
+  const roles=['Gym Captain','Off-Court Official'];
   let h='';
   roles.forEach(role=>{
     const g=offs.filter(o=>o.role===role); if(!g.length) return;
-    h+=`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 3px">${role}</div>`;
+    h+=`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 3px">${role==='Off-Court Official'?'Off-Court Officials':role}</div>`;
     g.forEach(o=>{
       h+=`<div style="padding:6px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:center;gap:10px;font-size:13px">
@@ -1316,13 +1317,14 @@ function courtOpts(t, selId) {
 function apOfficials(t) {
   /* Officials are GLOBAL - shared across all tournaments */
   const offs = appState.officials||[];
-  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Officials Pool <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">(shared across all tournaments)</span></div>`;
+  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Officials Pool <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">(Gym Captains + Off-Court Officials — shared across all tournaments)</span></div>`;
   if(offs.length) {
-    const roles = ['Gym Captain','Scorekeeper','Shot Clock','Game Sheet','Referee','Other'];
+    const roles = ['Gym Captain','Off-Court Official'];
     roles.forEach(role=>{
       const group = offs.filter(o=>o.role===role);
       if(!group.length) return;
-      h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 4px">${role}</div>`;
+      const roleColor = role==='Gym Captain' ? 'var(--orange)' : 'var(--muted)';
+      h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:${roleColor};margin:8px 0 4px">${role==='Off-Court Official'?'Off-Court Officials (Scorekeeper / Shot Clock / Game Sheet)':role}</div>`;
       group.forEach(o=>{
         h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:5px">
           <div style="display:flex;align-items:center;gap:10px">
@@ -1341,16 +1343,16 @@ function apOfficials(t) {
     h += '<div class="ap-empty" style="font-size:12px;padding:6px 0">No officials added yet.</div>';
   }
   h += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px">
-    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:4px">Add Official</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+      <strong>Gym Captain</strong> = assigned to one gym. &nbsp;
+      <strong>Off-Court Official</strong> = fills Scorekeeper, Shot Clock, or Game Sheet roles.
+    </div>
     <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;flex-wrap:wrap">
       <div><label>Role</label>
         <select id="f_or">
           <option value="Gym Captain">Gym Captain</option>
-          <option value="Scorekeeper">Scorekeeper</option>
-          <option value="Shot Clock">Shot Clock</option>
-          <option value="Game Sheet">Game Sheet</option>
-          <option value="Referee">Referee</option>
-          <option value="Other">Other</option>
+          <option value="Off-Court Official">Off-Court Official</option>
         </select>
       </div>
       <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
@@ -1379,7 +1381,7 @@ function openEditOfficial(oId) {
     <div class="ap-form">
       <label>Role</label>
       <select id="eo_role">
-        ${['Gym Captain','Scorekeeper','Shot Clock','Game Sheet','Referee','Other'].map(r=>
+        ${['Gym Captain','Off-Court Official'].map(r=>
           `<option value="${r}"${r===o.role?' selected':''}>${r}</option>`).join('')}
       </select>
       <label>Name</label>
@@ -1526,7 +1528,9 @@ function apAssignments(t) {
     &#9888; No officials added yet. Go to the Officials tab to add them first.</div>`;
 
   const offOpts=(sel,role)=>{
-    const pool = role ? offs.filter(o=>o.role===role) : offs;
+    /* Gym Captain -> filter by 'Gym Captain'; all off-court roles -> filter by 'Off-Court Official' */
+    const poolRole = role==='Gym Captain' ? 'Gym Captain' : 'Off-Court Official';
+    const pool = offs.filter(o=>o.role===poolRole);
     return '<option value="">-- Unassigned --</option>'
       + pool.map(o=>'<option value="'+o.id+'"'+(sel===o.id?' selected':'')+'>'+o.name+'</option>').join('');
   };
@@ -2075,8 +2079,23 @@ const DEFAULT_T2 = {
 };
 
 // ── INIT ──
+
+function migrateOfficialRoles() {
+  /* Consolidate Scorekeeper / Shot Clock / Game Sheet / Referee / Other -> Off-Court Official */
+  const oldRoles = new Set(['Scorekeeper','Shot Clock','Game Sheet','Referee','Other']);
+  (appState.officials||[]).forEach(o=>{
+    if(oldRoles.has(o.role)) o.role = 'Off-Court Official';
+  });
+  /* Also migrate per-tournament officials arrays (legacy) */
+  (appState.tournaments||[]).forEach(t=>{
+    (t.officials||[]).forEach(o=>{
+      if(oldRoles.has(o.role)) o.role = 'Off-Court Official';
+    });
+  });
+}
 async function init(){
   loadLocal();
+  migrateOfficialRoles(); /* normalize old roles on startup */
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
