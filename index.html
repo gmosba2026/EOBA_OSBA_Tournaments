@@ -408,18 +408,20 @@ const DEFAULT_T = {
 let isAdmin   = false;
 let pollTimer = null;
 let adminTab  = 'tournaments';
+let loginRole  = null; /* 'admin' | 'gym' | null */
 let asgnTournId = null;
-let appState  = { tournaments:[], activeTournamentId:null, officials:[] };
+let appState  = { tournaments:[], activeTournamentId:null, officials:[], gymCaptainPin:'0000' };
 
 // ── STORAGE ──
 function saveLocal() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin })); } catch(e) {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin, loginRole })); } catch(e) {}
 }
 function loadLocal() {
   try {
     const d = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     if (d.appState) appState = d.appState;
     isAdmin = !!d.isAdmin;
+    if (d.loginRole) loginRole = d.loginRole;
   } catch(e) {}
 }
 async function syncToCloud() {
@@ -476,6 +478,7 @@ async function loadFromCloud() {
       }
       if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
       if (rec.officials)          appState.officials          = rec.officials;
+      if (rec.gymCaptainPin)       appState.gymCaptainPin      = rec.gymCaptainPin;
       /* Re-apply seed fields that cloud data may be missing */
       [DEFAULT_T, DEFAULT_T2].forEach(seed=>{
         const t=appState.tournaments.find(x=>x.id===seed.id);
@@ -1120,8 +1123,12 @@ function setTab(tab) { adminTab=tab; renderAdminPanel(); }
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
   const t=getActive();
-  const tabs=['tournaments','teams','rosters','officials','assignments','schedule'];
-  const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',officials:'Officials',assignments:'Assignments',schedule:'Schedule'};
+  const allTabs=['tournaments','teams','rosters','officials','assignments','schedule'];
+  const allLabels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',officials:'Officials',assignments:'Assignments',schedule:'Schedule'};
+  /* Gym Captain: only see Assignments tab */
+  const tabs    = loginRole==='gym' ? ['assignments'] : allTabs;
+  const labels  = loginRole==='gym' ? {assignments:'Assignments'} : allLabels;
+  if(loginRole==='gym' && adminTab!=='assignments') adminTab='assignments';
   let html=`<div class="ap-header"><div class="ap-title">\u2699\uFE0F Admin Panel</div><button class="ap-close" onclick="closeAdminPanel()">\u2715</button></div>
   <div class="ap-tabs">${tabs.map(tab=>`<button class="ap-tab${adminTab===tab?' active':''}" onclick="setTab('${tab}')">${labels[tab]}</button>`).join('')}</div>
   <div class="ap-body">`;
@@ -1153,6 +1160,43 @@ function apTournaments() {
       </div>
     </div>`;
   });
+
+  /* ── PIN Settings ── */
+  h += `<div style="border-top:2px solid var(--border);margin-top:18px;padding-top:16px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+      text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:10px">
+      &#x1F511; PIN Settings
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Admin PIN</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input value="128976" disabled style="background:var(--surface2);color:var(--muted);
+            cursor:not-allowed;letter-spacing:4px;font-weight:700;font-size:15px;width:120px;
+            border:1.5px solid var(--border);border-radius:6px;padding:7px 10px">
+          <span style="font-size:10px;color:var(--muted)">Static &mdash; cannot change</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px">Gym Captain PIN</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input id="gcPinInput" value="${appState.gymCaptainPin||'0000'}"
+            placeholder="Enter PIN" maxlength="10"
+            onkeydown="if(event.key==='Enter')saveGCPin()"
+            style="letter-spacing:4px;font-weight:700;font-size:15px;width:120px;
+            border:1.5px solid var(--orange);border-radius:6px;padding:7px 10px;
+            background:var(--bg);color:var(--text)">
+          <button class="ap-btn ap-btn-primary" onclick="saveGCPin()" style="font-size:11px;white-space:nowrap">
+            &#x2713; Save PIN
+          </button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:5px">
+          Gives Gym Captains access to the Assignments tab only
+        </div>
+      </div>
+    </div>
+  </div>`;
+
   return h;
 }
 
@@ -1952,7 +1996,7 @@ function openLoginModal(role) {
   const titles={admin:'\u1F4BB Administrator Access', gym:'\u1F6A9 Gym Captain Access'};
   const subs={
     admin:'Enter your PIN to unlock tournament management, schedule editing and scoring.',
-    gym:'Enter your Gym Captain PIN to unlock score entry for your assigned games.'
+    gym:'Enter your Gym Captain PIN to access score entry and game assignments.'
   };
   const el=document.getElementById('pinModalRole');
   const sub=document.getElementById('pinModalSub');
@@ -1964,18 +2008,33 @@ function openLoginModal(role) {
   setTimeout(()=>document.getElementById('pinInput').focus(),80);
 }
 function closePinModal() { document.getElementById('pinModal').className='modal-overlay'; }
+function saveGCPin() {
+  const val = document.getElementById('gcPinInput')?.value.trim();
+  if(!val) return showToast('Enter a PIN first', true);
+  if(val==='128976') return showToast('Gym Captain PIN cannot match Admin PIN', true);
+  if(val.length < 4) return showToast('PIN must be at least 4 digits', true);
+  appState.gymCaptainPin = val;
+  syncToCloud(); showToast('\uD83D\uDEA9 Gym Captain PIN updated ✓');
+}
 function tryLogin() {
   const v=document.getElementById('pinInput').value.trim();
-  const t=getActive();
-  const validPIN = (t&&t.pin) ? t.pin : PIN;
-  if(v===validPIN){isAdmin=true;saveLocal();closePinModal();render();showToast('\u26A1 Admin / Gym Captain mode unlocked');}
-  else{
+  const gcPin = appState.gymCaptainPin||'0000';
+  /* Admin PIN is static: 128976 — never changes */
+  if(v===PIN){
+    isAdmin=true; loginRole='admin';
+    saveLocal(); closePinModal(); render();
+    showToast('\u26A1 Admin mode unlocked');
+  } else if(v===gcPin){
+    isAdmin=true; loginRole='gym';
+    saveLocal(); closePinModal(); render();
+    showToast('\uD83D\uDEA9 Gym Captain mode unlocked');
+  } else {
     const inp=document.getElementById('pinInput'); inp.className='pin-input error';
     document.getElementById('pinError').textContent='Incorrect PIN. Try again.';
     setTimeout(()=>inp.className='pin-input',400); inp.value=''; inp.focus();
   }
 }
-function logout(){isAdmin=false;saveLocal();closeAdminPanel();render();showToast('Locked.');}
+function logout(){isAdmin=false; loginRole=null;saveLocal();closeAdminPanel();render();showToast('Locked.');}
 
 function updateBanner() {
   const bn=document.getElementById('modeBanner'), lb=document.getElementById('modeLabel');
