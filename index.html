@@ -425,14 +425,20 @@ function loadLocal() {
 async function syncToCloud() {
   saveLocal();
   try {
+    const ts = Date.now();
+    const payload = { version:2, _savedAt:ts, ...appState };
     await fetch(BIN_URL, {
       method:'PUT',
       headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
-      body: JSON.stringify({ version:2, ...appState })
+      body: JSON.stringify(payload)
     });
+    appState._savedAt = ts; /* track when we last synced */
+    saveLocal(); /* re-save with timestamp */
     updateSyncStatus();
-    showToast('Saved \u2713');
-  } catch(e) { showToast('Saved locally \u2014 check connection', true); }
+    showToast('✓ Saved');
+  } catch(e) {
+    showToast('Saved locally — check connection', true);
+  }
 }
 async function loadFromCloud() {
   try {
@@ -440,7 +446,34 @@ async function loadFromCloud() {
     const data = await res.json();
     const rec  = data.record || {};
     if (rec.version === 2) {
-      if (rec.tournaments)        appState.tournaments        = rec.tournaments;
+      if (rec.tournaments) {
+        /* Merge strategy: take cloud tournaments but preserve locally-saved officials
+           in case the cloud data hasn't propagated yet (JSONBin eventual consistency) */
+        const localTourneys = appState.tournaments; // pre-cloud (from localStorage)
+        appState.tournaments = rec.tournaments;
+        /* Re-apply any officials that exist locally but not in cloud (recent saves) */
+        appState.tournaments.forEach(ct=>{
+          const lt = localTourneys.find(x=>x.id===ct.id);
+          if(!lt) return;
+          /* RR games */
+          (ct.games||[]).forEach(cg=>{
+            const lg = (lt.games||[]).find(x=>x.id===cg.id);
+            if(!lg) return;
+            /* Cloud wins if it has data; local wins if cloud has nothing */
+            if(!cg.officials || !Object.values(cg.officials).some(v=>v))
+              if(lg.officials && Object.values(lg.officials).some(v=>v))
+                cg.officials = JSON.parse(JSON.stringify(lg.officials));
+          });
+          /* Playoff games */
+          (ct.playoffGames||[]).forEach(cpg=>{
+            const lpg = (lt.playoffGames||[]).find(x=>x.id===cpg.id);
+            if(!lpg) return;
+            if(!cpg.officials || !Object.values(cpg.officials).some(v=>v))
+              if(lpg.officials && Object.values(lpg.officials).some(v=>v))
+                cpg.officials = JSON.parse(JSON.stringify(lpg.officials));
+          });
+        });
+      }
       if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
       if (rec.officials)          appState.officials          = rec.officials;
       /* Re-apply seed fields that cloud data may be missing */
@@ -1541,19 +1574,19 @@ function apAssignments(t) {
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;margin-bottom:10px">
           <div>
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F6A9; Gym Captain</div>
-            <select id="asgn_gc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gc,'Gym Captain')}</select>
+            <select id="asgn_gc_${uid}" onchange="${saveCall}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gc,'Gym Captain')}</select>
           </div>
           <div>
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4CB; Scorekeeper</div>
-            <select id="asgn_sk_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sk,'Scorekeeper')}</select>
+            <select id="asgn_sk_${uid}" onchange="${saveCall}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sk,'Scorekeeper')}</select>
           </div>
           <div>
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x23F1; Shot Clock</div>
-            <select id="asgn_sc_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sc,'Shot Clock')}</select>
+            <select id="asgn_sc_${uid}" onchange="${saveCall}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.sc,'Shot Clock')}</select>
           </div>
           <div>
             <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px">&#x1F4DD; Game Sheet</div>
-            <select id="asgn_gs_${uid}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gs,'Game Sheet')}</select>
+            <select id="asgn_gs_${uid}" onchange="${saveCall}" style="width:100%;font-size:12px;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px">${offOpts(go.gs,'Game Sheet')}</select>
           </div>
         </div>
         <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}" style="font-size:11px">&#x2713; Save</button>
@@ -1563,7 +1596,7 @@ function apAssignments(t) {
   return h;
 }
 
-function saveGameOfficials(tId, gId) {
+async function saveGameOfficials(tId, gId) {
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const g=t.games.find(x=>x.id===gId); if(!g) return;
   if(!g.officials) g.officials={};
@@ -1572,10 +1605,11 @@ function saveGameOfficials(tId, gId) {
     const el=document.getElementById('asgn_'+role+'_'+uid);
     g.officials[role]=el?el.value:'';
   });
-  syncToCloud(); showToast('Assignments saved ✓');
+  saveLocal(); /* save to localStorage immediately */
+  await syncToCloud();
 }
 
-function savePlayoffOfficials(tId, pgId) {
+async function savePlayoffOfficials(tId, pgId) {
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const pg=(t.playoffGames||[]).find(x=>x.id===pgId); if(!pg) return;
   if(!pg.officials) pg.officials={};
@@ -1584,7 +1618,8 @@ function savePlayoffOfficials(tId, pgId) {
     const el=document.getElementById('asgn_'+role+'_'+uid);
     pg.officials[role]=el?el.value:'';
   });
-  syncToCloud(); showToast('Assignments saved ✓');
+  saveLocal(); /* save to localStorage immediately */
+  await syncToCloud();
 }
 
 function apSchedule(t) {
