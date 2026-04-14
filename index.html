@@ -909,29 +909,9 @@ function renderHeader(t) {
 }
 
 function renderOfficials(t) {
+  /* Officials section is hidden on the public page — officials are backend only */
   const sec=document.getElementById('officialsSection');
-  const el=document.getElementById('officialsPub');
-  if(!sec||!el) return;
-  /* Officials are stored globally in appState.officials, not per-tournament */
-  const offs=appState.officials||[];
-  if(!offs.length){sec.style.display='none';return;}
-  sec.style.display='';
-  const roles=['Gym Captain','Off-Court Official'];
-  let h='';
-  roles.forEach(role=>{
-    const g=offs.filter(o=>o.role===role); if(!g.length) return;
-    h+=`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:8px 0 3px">${role==='Off-Court Official'?'Off-Court Officials':role}</div>`;
-    g.forEach(o=>{
-      h+=`<div style="padding:6px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:10px;font-size:13px">
-          <span style="flex:1;font-weight:600">${o.name}</span>
-          ${o.phone?`<span style="color:var(--muted);font-size:11px">&#x1F4DE; ${o.phone}</span>`:''}
-        </div>
-        ${o.email?`<div style="font-size:11px;color:var(--muted);margin-top:2px">&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></div>`:''}
-      </div>`;
-    });
-  });
-  el.innerHTML=h;
+  if(sec) sec.style.display='none';
 }
 
 function renderTeams(t) {
