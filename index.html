@@ -1299,29 +1299,76 @@ function apCourts(t) {
   if(!t) return '';
   const courts = t.courts||[];
 
-  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:6px">Courts / Gyms</div>`;
-
-  if(courts.length) {
-    h += `<div style="display:grid;gap:6px;margin-bottom:10px">`;
-    courts.forEach(c=>{
-      const murl = c.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}` : '';
-      h += `<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px">
-        <span style="font-weight:700;flex:1">${c.name}</span>
-        <span style="color:var(--muted);font-size:11px">${c.address||''}</span>
-        ${murl?`<a href="${murl}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:1px 6px;border-radius:3px;text-decoration:none">Map</a>`:''}
-        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeCourt('${t.id}','${c.id}')">Remove</button>
-      </div>`;
-    });
-    h += `</div>`;
-  } else {
-    h += `<div class="ap-empty" style="font-size:12px;padding:6px 0;margin-bottom:8px">No courts yet.</div>`;
-  }
-  h += `<div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;margin-bottom:16px">
-    <div><label>Court Name</label><input id="f_cn" placeholder="e.g. Gym A"></div>
-    <div><label>Address (optional)</label><input id="f_ca" placeholder="e.g. 3740 Spratt Rd"></div>
-    <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addCourt('${t.id}')">Add Court</button>
+  /* ── Live debug strip: shows every official and their stored role ── */
+  const _dbg = (appState.officials||[]).map(o=>`${o.name}=${o.role}`).join(', ') || 'EMPTY';
+  let h = `<div style="font-size:10px;color:var(--muted);background:rgba(255,255,0,.05);
+    border:1px dashed rgba(255,255,0,.25);border-radius:4px;padding:5px 8px;margin-bottom:8px;
+    word-break:break-all">
+    <strong style="color:var(--orange)">DEBUG — appState.officials:</strong> ${_dbg}
+    &nbsp; <button class="ap-btn ap-btn-sm" onclick="forceMigrateAndSave()" style="font-size:9px;padding:2px 7px">Fix &amp; Save</button>
   </div>`;
+  h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+    text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">
+    Courts / Gyms
+  </div>`;
+
+  /* ── Dropdown selector for existing courts ── */
+  if(courts.length) {
+    h += `<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px">Existing Courts/Gyms</div>
+        <select id="courtSelector" onchange="showCourtDetail('${t.id}')"
+          style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
+          color:var(--text);padding:7px 10px;font-size:13px">
+          <option value="">— Select a court to view —</option>
+          ${courts.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="courtDetail_${t.id}" style="display:none;background:var(--surface2);border:1px solid var(--border);
+      border-left:3px solid var(--orange);border-radius:6px;padding:10px 14px;margin-bottom:10px">
+    </div>`;
+  } else {
+    h += `<div class="ap-empty" style="font-size:12px;padding:4px 0;margin-bottom:8px">No courts yet. Add one below.</div>`;
+  }
+
+  /* ── Add court form ── */
+  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Add Court / Gym</div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+      <div><label>Court Name</label><input id="f_cn" placeholder="e.g. Gym A"></div>
+      <div><label>Address (optional)</label><input id="f_ca" placeholder="e.g. 3740 Spratt Rd"></div>
+      <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addCourt('${t.id}')">+ Add</button>
+    </div>
+  </div>`;
+
   return h;
+}
+
+function showCourtDetail(tId) {
+  const t = appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const sel = document.getElementById('courtSelector');
+  const detail = document.getElementById('courtDetail_'+tId);
+  if(!sel||!detail) return;
+  const cId = sel.value;
+  if(!cId) { detail.style.display='none'; return; }
+  const c = (t.courts||[]).find(x=>x.id===cId);
+  if(!c) { detail.style.display='none'; return; }
+  const murl = c.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`
+    : '';
+  detail.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13px">${c.name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.address||'No address set'}</div>
+      </div>
+      ${murl?`<a href="${murl}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;
+        border:1px solid rgba(249,115,22,.4);padding:3px 8px;border-radius:4px;text-decoration:none">
+        &#x1F4CD; Map</a>`:''}
+      <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeCourt('${tId}','${c.id}')">Remove</button>
+    </div>`;
+  detail.style.display = '';
 }
 
 function addCourt(tId) {
@@ -1350,36 +1397,91 @@ function courtOpts(t, selId) {
 }
 
 
-function apOfficials(t) {
-  /* Officials are GLOBAL - shared across all tournaments */
-  const offs = appState.officials||[];
-  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Officials Pool <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">(Gym Captains + Off-Court Officials — shared across all tournaments)</span></div>`;
-  if(offs.length) {
-    const roles = ['Gym Captain','Off-Court Official'];
-    roles.forEach(role=>{
-      const group = offs.filter(o=>o.role===role);
-      if(!group.length) return;
-      const roleColor = role==='Gym Captain' ? 'var(--orange)' : 'var(--muted)';
-      h += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:${roleColor};margin:8px 0 4px">${role==='Off-Court Official'?'Off-Court Officials (Scorekeeper / Shot Clock / Game Sheet)':role}</div>`;
-      group.forEach(o=>{
-        h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:5px">
-          <div style="display:flex;align-items:center;gap:10px">
-            <span style="flex:1;font-weight:700;font-size:13px">${o.name}</span>
-            <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F;</button>
-            <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--muted)">
-            ${o.phone?`<span>&#x1F4DE; ${o.phone}</span>`:''}
-            ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></span>`:''}
-          </div>
-        </div>`;
-      });
+function forceMigrateAndSave() {
+  /* Aggressively find ALL officials wherever they might be stored */
+  if(!appState.officials) appState.officials = [];
+  const seen = new Set(appState.officials.map(o=>o.id));
+
+  /* Scan every possible storage location */
+  (appState.tournaments||[]).forEach(t=>{
+    /* t.officials (legacy per-tournament) */
+    (t.officials||[]).forEach(o=>{
+      if(!seen.has(o.id)){
+        if(!o.role || o.role==='undefined') o.role='Off-Court Official';
+        if(o.role!=='Gym Captain') o.role='Off-Court Official';
+        appState.officials.push({...o}); seen.add(o.id);
+      }
     });
-  } else {
-    h += '<div class="ap-empty" style="font-size:12px;padding:6px 0">No officials added yet.</div>';
+    t.officials=[];
+  });
+
+  /* Normalize ALL roles */
+  appState.officials.forEach(o=>{
+    if(!o.role) o.role='Off-Court Official';
+    if(o.role!=='Gym Captain') o.role='Off-Court Official';
+  });
+
+  syncToCloud();
+  renderAdminPanel();
+  showToast('\u2713 Officials migrated and saved to cloud');
+}
+function apOfficials(t) {
+  const offs = appState.officials||[];
+
+  /* Group by role */
+  const gcGroup  = offs.filter(o=>o.role==='Gym Captain');
+  const ocGroup  = offs.filter(o=>o.role==='Off-Court Official');
+
+  function officialOpts(group, label) {
+    if(!group.length) return `<option value="">— No ${label}s added yet —</option>`;
+    return `<option value="">— Select a ${label} —</option>`
+      + group.map(o=>`<option value="${o.id}">${o.name}</option>`).join('');
   }
-  h += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px">
-    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:4px">Add Official</div>
+
+  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+    text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">
+    Officials Pool
+    <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">
+      &nbsp;(shared across all tournaments)
+    </span>
+  </div>`;
+
+  /* ── Gym Captains dropdown ── */
+  h += `<div style="margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--orange);margin-bottom:4px">&#x1F6A9; Gym Captains (${gcGroup.length})</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="gcSelector" onchange="showOfficialDetail('gc')"
+        style="flex:1;min-width:200px;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
+        color:var(--text);padding:7px 10px;font-size:13px">
+        ${officialOpts(gcGroup,'Gym Captain')}
+      </select>
+    </div>
+    <div id="officialDetail_gc" style="display:none;background:var(--surface2);border:1px solid var(--border);
+      border-left:3px solid var(--orange);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+
+  /* ── Off-Court Officials dropdown ── */
+  h += `<div style="margin-bottom:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--muted);margin-bottom:4px">&#x1F4CB; Off-Court Officials (${ocGroup.length})
+      <span style="font-weight:400;text-transform:none"> — Scorekeeper / Shot Clock / Game Sheet</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="ocSelector" onchange="showOfficialDetail('oc')"
+        style="flex:1;min-width:200px;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
+        color:var(--text);padding:7px 10px;font-size:13px">
+        ${officialOpts(ocGroup,'Off-Court Official')}
+      </select>
+    </div>
+    <div id="officialDetail_oc" style="display:none;background:var(--surface2);border:1px solid var(--border);
+      border-left:3px solid var(--muted);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+
+  /* ── Add Official form ── */
+  h += `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:12px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+      text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:4px">Add Official</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
       <strong>Gym Captain</strong> = assigned to one gym. &nbsp;
       <strong>Off-Court Official</strong> = fills Scorekeeper, Shot Clock, or Game Sheet roles.
@@ -1397,7 +1499,35 @@ function apOfficials(t) {
       <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addOfficial()">Add</button>
     </div>
   </div>`;
+
   return h;
+}
+
+function showOfficialDetail(key) {
+  const selId   = key==='gc' ? 'gcSelector'  : 'ocSelector';
+  const detailId = key==='gc' ? 'officialDetail_gc' : 'officialDetail_oc';
+  const sel    = document.getElementById(selId);
+  const detail = document.getElementById(detailId);
+  if(!sel||!detail) return;
+  const oId = sel.value;
+  if(!oId) { detail.style.display='none'; return; }
+  const o = (appState.officials||[]).find(x=>x.id===oId);
+  if(!o) { detail.style.display='none'; return; }
+  detail.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13px">${o.name}
+          <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">${o.role}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:5px;font-size:11px;color:var(--muted)">
+          ${o.phone?`<span>&#x1F4DE; ${o.phone}</span>`:''}
+          ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></span>`:''}
+        </div>
+      </div>
+      <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>
+      <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>
+    </div>`;
+  detail.style.display = '';
 }
 
 function addOfficial() {
@@ -2343,16 +2473,34 @@ const DEFAULT_T2 = {
 // ── INIT ──
 
 function migrateOfficialRoles() {
-  /* Consolidate Scorekeeper / Shot Clock / Game Sheet / Referee / Other -> Off-Court Official */
   const oldRoles = new Set(['Scorekeeper','Shot Clock','Game Sheet','Referee','Other']);
-  (appState.officials||[]).forEach(o=>{
-    if(oldRoles.has(o.role)) o.role = 'Off-Court Official';
+
+  /* Step 1: rename old role labels in global pool.
+     Normalize ALL non-GymCaptain roles to 'Off-Court Official' */
+  if(!appState.officials) appState.officials = [];
+  appState.officials.forEach(o=>{
+    if(!o.role) o.role = 'Off-Court Official';
+    /* Exact old roles */
+    if(oldRoles.has(o.role)) { o.role = 'Off-Court Official'; return; }
+    /* Loose match: anything that isn't exactly 'Gym Captain' becomes Off-Court Official */
+    if(o.role !== 'Gym Captain') o.role = 'Off-Court Official';
   });
-  /* Also migrate per-tournament officials arrays (legacy) */
+
+  /* Step 2: LIFT any officials still stored in t.officials (legacy per-tournament format)
+     into the global appState.officials pool, avoiding duplicates by id */
+  const existingIds = new Set(appState.officials.map(o=>o.id));
   (appState.tournaments||[]).forEach(t=>{
-    (t.officials||[]).forEach(o=>{
-      if(oldRoles.has(o.role)) o.role = 'Off-Court Official';
+    if(!t.officials || !t.officials.length) return;
+    t.officials.forEach(o=>{
+      /* Normalize role: anything not 'Gym Captain' becomes Off-Court Official */
+      if(o.role !== 'Gym Captain') o.role = 'Off-Court Official';
+      if(!existingIds.has(o.id)) {
+        appState.officials.push({...o});
+        existingIds.add(o.id);
+      }
     });
+    /* Clear from tournament after lifting to avoid double-display */
+    t.officials = [];
   });
 }
 async function init(){
