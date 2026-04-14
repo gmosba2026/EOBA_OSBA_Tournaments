@@ -893,7 +893,8 @@ function renderOfficials(t) {
   const sec=document.getElementById('officialsSection');
   const el=document.getElementById('officialsPub');
   if(!sec||!el) return;
-  const offs=t?(t.officials||[]):[];
+  /* Officials are stored globally in appState.officials, not per-tournament */
+  const offs=appState.officials||[];
   if(!offs.length){sec.style.display='none';return;}
   sec.style.display='';
   const roles=['Gym Captain','Off-Court Official'];
@@ -985,7 +986,7 @@ function renderSchedule(t) {
       ${(()=>{
         const go=g.officials||{};
         const parts=[];
-        const offN=id=>{if(!id)return'';const o=(t.officials||[]).find(x=>x.id===id);return o?o.name:'';};
+        const offN=id=>{if(!id)return'';const o=(appState.officials||[]).find(x=>x.id===id);return o?o.name:'';};
         if(offN(go.gc)) parts.push('<span>&#x1F6A9; <strong>GC:</strong> '+offN(go.gc)+'</span>');
         if(offN(go.sk)) parts.push('<span>&#x1F4CB; <strong>SK:</strong> '+offN(go.sk)+'</span>');
         if(offN(go.sc)) parts.push('<span>&#x23F1; <strong>SC:</strong> '+offN(go.sc)+'</span>');
@@ -1569,17 +1570,31 @@ function apAssignments(t) {
       border-radius:7px;padding:10px 14px;margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
         color:var(--orange);margin-bottom:8px">+ Add Off-Court Official</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div style="flex:1;min-width:140px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Name</div>
-          <input id="gc_offName" placeholder="Full name"
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">First Name</div>
+          <input id="gc_offFirst" placeholder="First"
             style="width:100%;background:var(--bg);border:1.5px solid var(--border);
             border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
             onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
         </div>
-        <div style="flex:1;min-width:120px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Phone (optional)</div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Last Name</div>
+          <input id="gc_offLast" placeholder="Last"
+            style="width:100%;background:var(--bg);border:1.5px solid var(--border);
+            border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
+            onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Phone</div>
           <input id="gc_offPhone" placeholder="613-555-0100"
+            style="width:100%;background:var(--bg);border:1.5px solid var(--border);
+            border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
+            onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Email (e-transfer)</div>
+          <input id="gc_offEmail" type="email" placeholder="name@email.com"
             style="width:100%;background:var(--bg);border:1.5px solid var(--border);
             border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px"
             onkeydown="if(event.key==='Enter')addOffCourtOfficial()">
@@ -1978,7 +1993,7 @@ function openEditGame(tId, gId) {
   const tOpts=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.home?' selected':''}>${tm.name}</option>`).join('');
   const tOptsA=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.away?' selected':''}>${tm.name}</option>`).join('');
   const cOpts=courtOpts(t,g.court||'');
-  const offs=t.officials||[];
+  const offs=appState.officials||[];
   const offOpts=(sel)=>'<option value="">-- None --</option>'+offs.map(o=>`<option value="${o.id}"${o.id===sel?' selected':''}>${o.role}: ${o.name}</option>`).join('');
   const go=g.officials||{};
   openModal(`<div class="modal-box" style="max-width:580px"><div class="modal-title">&#x270F; Edit Game</div>
@@ -2042,18 +2057,22 @@ function openLoginModal(role) {
 }
 function closePinModal() { document.getElementById('pinModal').className='modal-overlay'; }
 function addOffCourtOfficial() {
-  const name = document.getElementById('gc_offName')?.value.trim();
-  if(!name) return showToast('Enter a name', true);
+  const first = (document.getElementById('gc_offFirst')?.value.trim())||'';
+  const last  = (document.getElementById('gc_offLast')?.value.trim())||'';
+  const name  = (first+' '+last).trim();
+  if(!name) return showToast('Enter a first or last name', true);
   if(!appState.officials) appState.officials=[];
   appState.officials.push({
     id:'o'+Date.now(),
     role:'Off-Court Official',
     name,
     phone: document.getElementById('gc_offPhone')?.value.trim()||'',
-    email:''
+    email: document.getElementById('gc_offEmail')?.value.trim().toLowerCase()||''
   });
-  document.getElementById('gc_offName').value='';
-  document.getElementById('gc_offPhone').value='';
+  /* Clear the form */
+  ['gc_offFirst','gc_offLast','gc_offPhone','gc_offEmail'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
   saveLocal(); syncToCloud();
   renderAdminPanel();
   showToast('✓ Off-Court Official added');
