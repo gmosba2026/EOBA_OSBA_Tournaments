@@ -1456,7 +1456,8 @@ function printAllAssignments() {
   if(!tourn) { alert('No tournament selected.'); return; }
 
   const offs = appState.officials||[];
-  const offName = id => { const o=offs.find(x=>x.id===id); return o?o.name:''; };
+  const offObj = id => offs.find(x=>x.id===id)||null;
+  const offName = id => { const o=offObj(id); return o?o.name:''; };
 
   const allGames = [
     ...(tourn.games||[]).map(g=>({...g,isPO:false})),
@@ -1467,73 +1468,187 @@ function printAllAssignments() {
   const byDay = {};
   allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
 
-  let body = `<html><head><meta charset="utf-8">
-<title>Assignments - ${tourn.label||tourn.name}</title>
-<style>
-  body{font-family:Arial,sans-serif;font-size:12px;color:#000;margin:24px}
-  h1{font-size:20px;margin:0 0 3px}
-  .sub{font-size:10px;color:#888;margin-bottom:20px}
-  .day{font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;
-       color:#f97316;border-bottom:2px solid #f97316;padding:6px 0 3px;margin:16px 0 8px}
-  table{width:100%;border-collapse:collapse;margin-bottom:12px}
-  th{background:#f3f4f6;text-align:left;padding:6px 8px;font-size:10px;
-     text-transform:uppercase;letter-spacing:.5px;border:1px solid #ddd}
-  td{padding:6px 8px;border:1px solid #ddd;vertical-align:top;font-size:12px}
-  .po{background:#fffbeb}
-  .bold{font-weight:bold}
-  .po .bold{color:#b45309}
-  .na{color:#bbb}
-  .footer{margin-top:24px;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:8px}
-  .btns{margin-top:18px;text-align:center}
-  @media print{.btns{display:none}body{margin:12px}}
-</style></head><body>
-<h1>${tourn.label||tourn.name}</h1>
-<div class="sub">Officials Assignments &mdash; ${new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>`;
+  // ── Build fee summaries ──────────────────────────────────────────────────
+  // Gym Captain: $25/game, Off-Court: $20/game
+  const gcFees = {};    // officialId -> { name, phone, email, games }
+  const ocFees = {};    // officialId -> { name, phone, email, games }
 
+  allGames.forEach(g => {
+    const go = g.officials||{};
+    const label = g.isPO ? (g.round||g.id)
+                         : (tName(tourn,g.home)+' vs '+tName(tourn,g.away));
+    const gameInfo = { label, day:g.day||'', time:g.time||'' };
+
+    // Gym Captain
+    if(go.gc) {
+      const o = offObj(go.gc);
+      if(o) {
+        if(!gcFees[go.gc]) gcFees[go.gc] = { name:o.name, phone:o.phone||'', email:o.email||'', games:[] };
+        gcFees[go.gc].games.push(gameInfo);
+      }
+    }
+    // Off-court: sk, sc, gs
+    ['sk','sc','gs'].forEach(role => {
+      const id = go[role];
+      if(!id) return;
+      const o = offObj(id);
+      if(!o) return;
+      if(!ocFees[id]) ocFees[id] = { name:o.name, phone:o.phone||'', email:o.email||'', games:[] };
+      // avoid counting same game twice if same person assigned to 2 roles in same game
+      if(!ocFees[id].games.find(x=>x.label===label&&x.day===gameInfo.day))
+        ocFees[id].games.push(gameInfo);
+    });
+  });
+
+  const GC_RATE = 25;
+  const OC_RATE = 20;
+
+  function feeRows(feeMap, rate) {
+    return Object.values(feeMap).map(p => {
+      const total = (p.games.length * rate).toFixed(2);
+      const gameList = p.games.map(g=>`<li>${g.day} &mdash; ${g.time} &mdash; ${g.label}</li>`).join('');
+      return `<tr>
+        <td><strong>${p.name}</strong>${p.phone?'<br><small style="color:#666">&#x1F4DE; '+p.phone+'</small>':''}</td>
+        <td style="color:#0a6">${p.email?`<a href="mailto:${p.email}" style="color:#0a6">${p.email}</a>`:''}</td>
+        <td style="text-align:center">${p.games.length}</td>
+        <td style="text-align:center">$${rate}.00</td>
+        <td style="text-align:right;font-weight:700">$${total}</td>
+        <td style="font-size:10px"><ul style="margin:0;padding-left:14px">${gameList}</ul></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="6" style="color:#aaa;text-align:center;padding:8px">No assignments</td></tr>`;
+  }
+
+  const gcTotal = Object.values(gcFees).reduce((s,p)=>s+(p.games.length*GC_RATE),0).toFixed(2);
+  const ocTotal = Object.values(ocFees).reduce((s,p)=>s+(p.games.length*OC_RATE),0).toFixed(2);
+  const grandTotal = (parseFloat(gcTotal)+parseFloat(ocTotal)).toFixed(2);
+
+  // ── Schedule table ────────────────────────────────────────────────────────
+  let scheduleHTML = '';
   Object.keys(byDay).forEach(day=>{
-    body += `<div class="day">${day}</div>
+    scheduleHTML += `<div class="day">${day}</div>
 <table><thead><tr>
-  <th style="width:22%">Game</th>
-  <th style="width:11%">Time</th>
-  <th style="width:20%">Location</th>
-  <th style="width:12%">Gym Captain</th>
-  <th style="width:11%">Scorekeeper</th>
-  <th style="width:11%">Shot Clock</th>
-  <th style="width:13%">Game Sheet</th>
+  <th style="width:22%">Game</th><th style="width:10%">Time</th>
+  <th style="width:18%">Location</th><th style="width:12%">Gym Captain</th>
+  <th style="width:12%">Scorekeeper</th><th style="width:12%">Shot Clock</th>
+  <th style="width:14%">Game Sheet</th>
 </tr></thead><tbody>`;
     byDay[day].forEach(g=>{
       const go = g.officials||{};
       const cn = courtName(tourn,g.court)||'';
       const ca = courtAddr(tourn,g.court)||'';
       const ml = g.isPO ? '&#x1F3C6; '+(g.round||g.id) : (tName(tourn,g.home)+' vs '+tName(tourn,g.away));
-      const rc = g.isPO ? 'po' : '';
-      const na = '<span class="na">&mdash;</span>';
+      const na = '<span style="color:#bbb">&mdash;</span>';
       const loc = cn+(ca?'<br><small style="color:#999;font-size:10px">'+ca+'</small>':'');
-      body += `<tr class="${rc}">
-  <td class="bold">${ml}</td>
-  <td>${g.time||''}</td>
-  <td>${loc}</td>
-  <td>${offName(go.gc)||na}</td>
-  <td>${offName(go.sk)||na}</td>
-  <td>${offName(go.sc)||na}</td>
-  <td>${offName(go.gs)||na}</td>
+      scheduleHTML += `<tr class="${g.isPO?'po':''}">
+  <td class="bold">${ml}</td><td>${g.time||''}</td><td>${loc}</td>
+  <td>${offName(go.gc)||na}</td><td>${offName(go.sk)||na}</td>
+  <td>${offName(go.sc)||na}</td><td>${offName(go.gs)||na}</td>
 </tr>`;
     });
-    body += '</tbody></table>';
+    scheduleHTML += '</tbody></table>';
   });
 
-  body += `<div class="footer">EOBA Tournament Manager &mdash; ${tourn.location||tourn.dates||''}</div>
+  // ── Full HTML document ────────────────────────────────────────────────────
+  const body = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Assignments &amp; Fees &mdash; ${tourn.label||tourn.name}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:24px}
+  h1{font-size:20px;margin:0 0 2px;color:#1a0a2e}
+  h2{font-size:14px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;
+     color:#6b2fa0;margin:20px 0 6px;border-bottom:2px solid #6b2fa0;padding-bottom:3px}
+  .sub{font-size:10px;color:#888;margin-bottom:18px}
+  .day{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;
+       color:#f97316;border-bottom:2px solid #f97316;padding:5px 0 3px;margin:14px 0 6px}
+  table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px}
+  th{background:#f3f4f6;text-align:left;padding:5px 7px;font-size:9px;
+     text-transform:uppercase;letter-spacing:.5px;border:1px solid #ddd}
+  td{padding:5px 7px;border:1px solid #ddd;vertical-align:top}
+  .po{background:#fffbeb}
+  .bold{font-weight:bold}
+  .po .bold{color:#b45309}
+  .fee-table th{background:#1a0a2e;color:#fff}
+  .fee-total td{background:#f0ebff;font-weight:bold;font-size:12px}
+  .grand-total{background:#6b2fa0;color:#fff;font-weight:bold;font-size:13px;
+               padding:8px 12px;text-align:right;margin-top:4px;border-radius:4px}
+  .section-note{font-size:10px;color:#888;margin-bottom:8px}
+  .btns{margin-top:22px;text-align:center}
+  @media print{.btns{display:none}body{margin:12px}}
+</style></head><body>
+<h1>${tourn.label||tourn.name}</h1>
+<div class="sub">Officials Assignments &amp; Fee Summary &mdash;
+  ${new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+
+<h2>&#x1F4CB; Schedule &amp; Assignments</h2>
+${scheduleHTML}
+
+<h2>&#x1F6A9; Gym Captain Fee Summary &mdash; $${GC_RATE}.00 / game</h2>
+<div class="section-note">Each Gym Captain earns $${GC_RATE}.00 per game they supervise.</div>
+<table class="fee-table"><thead><tr>
+  <th>Name &amp; Phone</th><th>Email</th><th style="text-align:center">Games</th>
+  <th style="text-align:center">Rate</th><th style="text-align:right">Total Fees</th>
+  <th>Game Details</th>
+</tr></thead><tbody>
+${feeRows(gcFees, GC_RATE)}
+</tbody><tfoot>
+  <tr class="fee-total">
+    <td colspan="4" style="text-align:right">Gym Captain Subtotal</td>
+    <td style="text-align:right">$${gcTotal}</td><td></td>
+  </tr>
+</tfoot></table>
+
+<h2>&#x1F4CB; Off-Court Officials Fee Summary &mdash; $${OC_RATE}.00 / game</h2>
+<div class="section-note">Off-court officials (Scorekeeper / Shot Clock / Game Sheet) earn $${OC_RATE}.00 per game.<br>
+  A person assigned to multiple roles in the same game is counted once.</div>
+<table class="fee-table"><thead><tr>
+  <th>Name &amp; Phone</th><th>Email (e-transfer)</th><th style="text-align:center">Games</th>
+  <th style="text-align:center">Rate</th><th style="text-align:right">Total Fees</th>
+  <th>Game Details</th>
+</tr></thead><tbody>
+${feeRows(ocFees, OC_RATE)}
+</tbody><tfoot>
+  <tr class="fee-total">
+    <td colspan="4" style="text-align:right">Off-Court Officials Subtotal</td>
+    <td style="text-align:right">$${ocTotal}</td><td></td>
+  </tr>
+</tfoot></table>
+
+<div class="grand-total">&#x1F4B0; Grand Total Fees Owed: $${grandTotal}</div>
+
 <div class="btns">
   <button onclick="window.print()" style="padding:8px 28px;font-size:13px;cursor:pointer;
-    background:#f97316;color:#fff;border:none;border-radius:6px;font-weight:bold">&#x1F5A8; Print</button>
+    background:#6b2fa0;color:#fff;border:none;border-radius:6px;font-weight:bold">
+    &#x1F5A8; Print / Save PDF
+  </button>
   &nbsp;&nbsp;
   <button onclick="window.close()" style="padding:8px 20px;font-size:13px;cursor:pointer;
     background:#f3f4f6;border:1px solid #ccc;border-radius:6px">Close</button>
-</div></body></html>`;
+</div>
+</body></html>`;
 
-  const w=window.open('','_blank','width=960,height=720,scrollbars=yes');
-  w.document.write(body);
-  w.document.close();
+  /* Use Blob URL to avoid popup blocker issues in browsers and iframe contexts */
+  try {
+    const blob = new Blob([body], {type:'text/html'});
+    const url  = URL.createObjectURL(blob);
+    const win  = window.open(url, '_blank');
+    if(!win) {
+      /* Popup blocked — fallback: open as data URI */
+      window.location.href = 'data:text/html;charset=utf-8,' + encodeURIComponent(body);
+    }
+  } catch(e) {
+    /* Last resort fallback for sandboxed iframes */
+    const newDoc = document.implementation.createHTMLDocument('Print');
+    newDoc.documentElement.innerHTML = body;
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';
+    iframe.srcdoc = body;
+    document.body.appendChild(iframe);
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '× Close Preview';
+    closeBtn.style.cssText = 'position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';
+    closeBtn.onclick = () => { iframe.remove(); closeBtn.remove(); };
+    document.body.appendChild(closeBtn);
+  }
 }
 
 function apAssignments(t) {
@@ -1676,6 +1791,17 @@ function apAssignments(t) {
       </div>`;
     });
   });
+
+  /* Bottom print button */
+  h += `<div style="margin-top:18px;padding-top:14px;border-top:2px solid var(--border);text-align:center">
+    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()"
+      style="font-size:13px;font-weight:700;padding:10px 24px;letter-spacing:.5px">
+      &#x1F4B0; Print Assignments &amp; Fee Summary
+    </button>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px">
+      Includes GC fees ($25/game) &middot; Off-Court fees ($20/game) &middot; e-transfer emails
+    </div>
+  </div>`;
   return h;
 }
 
@@ -1744,6 +1870,16 @@ function apSchedule(t) {
       </div>`;
     });
   }
+  /* Bottom print button */
+  h += `<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);text-align:center">
+    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()"
+      style="font-size:12px;font-weight:700;padding:9px 20px;letter-spacing:.5px">
+      &#x1F4B0; Print Assignments &amp; Fee Summary
+    </button>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px">
+      Includes GC fees ($25/game) and Off-Court fees ($20/game) with e-transfer emails
+    </div>
+  </div>`;
   return h;
 }
 
