@@ -428,14 +428,30 @@ async function syncToCloud() {
   saveLocal();
   try {
     const ts = Date.now();
-    const payload = { version:2, _savedAt:ts, ...appState };
+    /* Strip large base64 logos + headerBg before upload — they are hardcoded in
+       seeds and restored on every load, so storing them wastes cloud space and
+       can cause the PUT to fail silently when the payload exceeds JSONBin limits. */
+    const slimTournaments = (appState.tournaments||[]).map(t => {
+      const slim = {...t};
+      delete slim.headerBg;
+      if (slim.teams) slim.teams = slim.teams.map(tm => { const s={...tm}; delete s.logo; return s; });
+      return slim;
+    });
+    const payload = {
+      version: 2,
+      _savedAt: ts,
+      activeTournamentId: appState.activeTournamentId,
+      officials: appState.officials || [],
+      gymCaptainPin: appState.gymCaptainPin || '',
+      tournaments: slimTournaments
+    };
     await fetch(BIN_URL, {
       method:'PUT',
       headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
       body: JSON.stringify(payload)
     });
-    appState._savedAt = ts; /* track when we last synced */
-    saveLocal(); /* re-save with timestamp */
+    appState._savedAt = ts;
+    saveLocal();
     updateSyncStatus();
     showToast('✓ Saved');
   } catch(e) {
