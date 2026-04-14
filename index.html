@@ -1003,10 +1003,8 @@ function renderSchedule(t) {
         const go=g.officials||{};
         const parts=[];
         const offN=id=>{if(!id)return'';const o=(appState.officials||[]).find(x=>x.id===id);return o?o.name:'';};
+        /* Gym Captain always shown; off-court officials (SK/SC/GS) hidden on public view */
         if(offN(go.gc)) parts.push('<span>&#x1F6A9; <strong>GC:</strong> '+offN(go.gc)+'</span>');
-        if(offN(go.sk)) parts.push('<span>&#x1F4CB; <strong>SK:</strong> '+offN(go.sk)+'</span>');
-        if(offN(go.sc)) parts.push('<span>&#x23F1; <strong>SC:</strong> '+offN(go.sc)+'</span>');
-        if(offN(go.gs)) parts.push('<span>&#x1F4DD; <strong>GS:</strong> '+offN(go.gs)+'</span>');
         return parts.length?`<div style="display:flex;flex-wrap:wrap;gap:12px;padding:6px 14px 8px;
           font-size:11px;color:var(--muted);border-top:1px solid var(--border);background:rgba(0,0,0,.15)">
           ${parts.join('')}</div>`:'';
