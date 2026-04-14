@@ -523,8 +523,12 @@ async function loadFromCloud() {
         if (rec.playoffScores) t.playoffScores = rec.playoffScores;
       }
     }
-    migrateOfficialRoles(); /* normalize any old roles from cloud */
+    const _migChanged = migrateOfficialRoles(); /* normalize any old roles from cloud */
     saveLocal();
+    if(_migChanged) {
+      /* Roles were stale in cloud — push the corrected data back up now */
+      syncToCloud();
+    }
   } catch(e) {}
 }
 async function manualRefresh() {
@@ -2473,39 +2477,36 @@ const DEFAULT_T2 = {
 // ── INIT ──
 
 function migrateOfficialRoles() {
-  const oldRoles = new Set(['Scorekeeper','Shot Clock','Game Sheet','Referee','Other']);
+  let changed = false;
+  if(!appState.officials) { appState.officials = []; }
 
-  /* Step 1: rename old role labels in global pool.
-     Normalize ALL non-GymCaptain roles to 'Off-Court Official' */
-  if(!appState.officials) appState.officials = [];
+  /* Step 1: Normalize ALL roles — anything not exactly 'Gym Captain' becomes 'Off-Court Official' */
   appState.officials.forEach(o=>{
-    if(!o.role) o.role = 'Off-Court Official';
-    /* Exact old roles */
-    if(oldRoles.has(o.role)) { o.role = 'Off-Court Official'; return; }
-    /* Loose match: anything that isn't exactly 'Gym Captain' becomes Off-Court Official */
-    if(o.role !== 'Gym Captain') o.role = 'Off-Court Official';
+    const before = o.role;
+    if(!o.role || o.role !== 'Gym Captain') o.role = 'Off-Court Official';
+    if(o.role !== before) changed = true;
   });
 
-  /* Step 2: LIFT any officials still stored in t.officials (legacy per-tournament format)
-     into the global appState.officials pool, avoiding duplicates by id */
+  /* Step 2: Lift officials from legacy t.officials into global pool */
   const existingIds = new Set(appState.officials.map(o=>o.id));
   (appState.tournaments||[]).forEach(t=>{
     if(!t.officials || !t.officials.length) return;
     t.officials.forEach(o=>{
-      /* Normalize role: anything not 'Gym Captain' becomes Off-Court Official */
       if(o.role !== 'Gym Captain') o.role = 'Off-Court Official';
-      if(!existingIds.has(o.id)) {
+      if(!existingIds.has(o.id)){
         appState.officials.push({...o});
         existingIds.add(o.id);
+        changed = true;
       }
     });
-    /* Clear from tournament after lifting to avoid double-display */
     t.officials = [];
   });
+
+  return changed; /* true = something was normalized, caller should sync to cloud */
 }
 async function init(){
   loadLocal();
-  migrateOfficialRoles(); /* normalize old roles on startup */
+  if(migrateOfficialRoles()) saveLocal(); /* normalize old roles on startup */
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
