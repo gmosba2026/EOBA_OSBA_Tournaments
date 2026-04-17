@@ -353,7 +353,13 @@ tr.s5{border-left:3px solid var(--rank5)}
 // ── CONSTANTS ──
 const PIN     = '128976';
 const BIN_ID  = '69d93d4caaba882197e5c079';
-const BIN_KEY = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
+const BIN_KEY  = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
+/* Dedicated analytics bin — separate from app data so logos are never at risk.
+   Created automatically on first visit and stored in localStorage 'eoba_abid'.
+   Stores full visit history with no cap — supports 6+ months of data. */
+const ANALYTICS_BIN_KEY  = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
+const ANALYTICS_BIN_BASE = 'https://api.jsonbin.io/v3/b/';
+let   _analyticsBinId    = localStorage.getItem('eoba_abid') || null;
 
 const BIN_URL = 'https://api.jsonbin.io/v3/b/' + BIN_ID;
 const LS_KEY  = 'eoba_hub_v1';
@@ -412,7 +418,7 @@ let loginRole  = null; /* 'admin' | 'gym' | null */
 /* Viewer's tournament selection — completely isolated from appState/cloud syncs */
 let _viewTournId = localStorage.getItem('eoba_view_tid') || null;
 let asgnTournId = null;
-let appState  = { tournaments:[], activeTournamentId:null, officials:[], gymCaptainPin:'0000', analytics:{ visits:[] } };
+let appState  = { tournaments:[], activeTournamentId:null, officials:[], gymCaptainPin:'0000' };
 
 // ── STORAGE ──
 function saveLocal() {
@@ -449,7 +455,6 @@ async function syncToCloud() {
       officials: appState.officials || [],
       gymCaptainPin: appState.gymCaptainPin || '',
       tournaments: slimTournaments,
-      analytics: appState.analytics || { visits:[] }
     };
     await fetch(BIN_URL, {
       method:'PUT',
@@ -520,7 +525,7 @@ async function loadFromCloud() {
         appState.activeTournamentId = rec.activeTournamentId;
       if (rec.officials)          appState.officials          = rec.officials;
       if (rec.gymCaptainPin)       appState.gymCaptainPin      = rec.gymCaptainPin;
-      if (rec.analytics)           appState.analytics          = rec.analytics;
+      /* analytics stored in separate bin — not restored here */
       /* Re-apply seed fields that cloud data may be missing */
       [DEFAULT_T, DEFAULT_T2].forEach(seed=>{
         const t=appState.tournaments.find(x=>x.id===seed.id);
@@ -1148,7 +1153,12 @@ function closeAdminPanel() {
   document.getElementById('adminPanel').classList.remove('open');
   document.getElementById('apOverlay').classList.remove('open');
 }
-function setTab(tab) { adminTab=tab; renderAdminPanel(); }
+function setTab(tab) {
+  adminTab = tab;
+  renderAdminPanel();
+  /* Auto-load analytics history from dedicated bin when Analytics tab is opened */
+  if (tab === 'analytics') loadAndShowAnalytics();
+}
 
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
@@ -2590,52 +2600,100 @@ function recordPageVisit() {
     tz:   Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   };
 
-  /* Append to analytics store */
-  if (!appState.analytics) appState.analytics = { visits:[] };
+  /* Queue locally for dedicated analytics bin — never touches main app data */
+  const _queue = JSON.parse(localStorage.getItem('eoba_analytics_queue') || '[]');
+  _queue.push(visit);
+  /* Keep local queue to 50 entries max — flushed to dedicated bin regularly */
+  if (_queue.length > 50) _queue.splice(0, _queue.length - 50);
+  localStorage.setItem('eoba_analytics_queue', JSON.stringify(_queue));
+
+  /* Cache in memory for immediate display in admin analytics tab */
+  if (!appState.analytics) appState.analytics = { visits: [] };
   appState.analytics.visits.push(visit);
 
-  /* Cap at 1000 visits — keep the most recent */
-  if (appState.analytics.visits.length > 200) {
-    appState.analytics.visits = appState.analytics.visits.slice(-200);
-  }
-
-  saveLocal(); /* persist immediately to localStorage */
-
-  /* Debounce cloud flush: batch writes so rapid events don't spam JSONBin */
+  /* Debounce cloud flush to dedicated analytics bin */
   clearTimeout(_analyticsFlushTimer);
   _analyticsFlushTimer = setTimeout(() => {
     syncAnalyticsToCloud();
-  }, 4000); /* flush 4 seconds after last visit recorded */
+  }, 5000);
 }
 
 /* ── Dedicated analytics cloud sync (lightweight, no toast) ─────────────── */
-async function syncAnalyticsToCloud() {
-  /* Analytics sync: strip ALL logos + headerBg to keep payload tiny.
-     Logos are preserved by the main syncToCloud() call which runs on every
-     admin action. This sync only needs to record visit counts. */
+/* ── Analytics bin helpers ──────────────────────────────────────────────────
+   All analytics writes go to a DEDICATED bin that never touches app data.
+   The main app bin stays forever clean → logos never at risk.
+   Full history retained — no rolling cap. Supports 6+ months of data.
+─────────────────────────────────────────────────────────────────────────── */
+
+async function getOrCreateAnalyticsBin() {
+  if (_analyticsBinId) return _analyticsBinId;
   try {
-    const slimForAnalytics = (appState.tournaments||[]).map(t => {
-      const s = {...t};
-      delete s.headerBg;
-      /* Strip team logos from analytics sync — they are large and not needed
-         for analytics. Main syncToCloud() is the authoritative logo sync. */
-      if (s.teams) s.teams = s.teams.map(tm => { const st={...tm}; delete st.logo; return st; });
-      return s;
+    const res = await fetch(ANALYTICS_BIN_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': ANALYTICS_BIN_KEY,
+        'X-Bin-Name':   'eoba_analytics_history',
+        'X-Bin-Private':'true'
+      },
+      body: JSON.stringify({ version:1, visits:[], _created: new Date().toISOString() })
     });
-    const payload = {
-      version: 2,
-      _savedAt: Date.now(),
-      activeTournamentId: null,
-      officials: appState.officials || [],
-      gymCaptainPin: appState.gymCaptainPin || '',
-      analytics: appState.analytics || { visits:[] },
-      tournaments: slimForAnalytics
-    };
-    await fetch(BIN_URL, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
-      body: JSON.stringify(payload)
+    const data = await res.json();
+    const id = data?.metadata?.id;
+    if (id) {
+      _analyticsBinId = id;
+      localStorage.setItem('eoba_abid', id);
+      return id;
+    }
+  } catch(e) {}
+  return null;
+}
+
+/* Load existing visits from analytics bin */
+async function loadAnalyticsFromBin() {
+  try {
+    const id = _analyticsBinId || localStorage.getItem('eoba_abid');
+    if (!id) return [];
+    const res  = await fetch(ANALYTICS_BIN_BASE + id + '/latest',
+      { headers: { 'X-Master-Key': ANALYTICS_BIN_KEY } });
+    const data = await res.json();
+    return data?.record?.visits || [];
+  } catch(e) { return []; }
+}
+
+async function syncAnalyticsToCloud() {
+  if (isBot()) return;
+  try {
+    /* Get or create the dedicated analytics bin */
+    const binId = await getOrCreateAnalyticsBin();
+    if (!binId) return; /* bin creation failed — skip silently */
+
+    /* Load existing visits, append any new ones queued locally */
+    const existing = await loadAnalyticsFromBin();
+    const local    = JSON.parse(localStorage.getItem('eoba_analytics_queue') || '[]');
+
+    /* Merge: existing (from bin) + new local visits not yet in bin */
+    const existingTs = new Set(existing.map(v => v.ts + v.vid));
+    const toAdd      = local.filter(v => !existingTs.has(v.ts + v.vid));
+    const merged     = [...existing, ...toAdd];
+
+    /* Sort by timestamp, newest last */
+    merged.sort((a,b) => a.ts < b.ts ? -1 : 1);
+
+    /* Write back to analytics bin */
+    await fetch(ANALYTICS_BIN_BASE + binId, {
+      method:  'PUT',
+      headers: { 'Content-Type':'application/json', 'X-Master-Key': ANALYTICS_BIN_KEY },
+      body:    JSON.stringify({ version:1, visits: merged, _updated: new Date().toISOString() })
     });
+
+    /* Clear local queue on success */
+    localStorage.removeItem('eoba_analytics_queue');
+
+    /* Cache visits in memory for the admin report */
+    if (!appState.analytics) appState.analytics = {};
+    appState.analytics.visits = merged;
+
   } catch(e) { /* silent fail — analytics is best-effort */ }
 }
 
@@ -2654,11 +2712,31 @@ document.addEventListener('visibilitychange', () => {
    To view: log in as Admin → click Analytics tab
    Weekend = Saturday (day 6 UTC) or Sunday (day 0 UTC)
 ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadAndShowAnalytics() {
+  showToast('Loading analytics history…');
+  try {
+    const visits = await loadAnalyticsFromBin();
+    if (!appState.analytics) appState.analytics = {};
+    appState.analytics.visits = visits;
+    renderAdminPanel();
+    showToast('✓ Loaded ' + visits.length + ' visits');
+  } catch(e) {
+    showToast('Could not load analytics', true);
+  }
+}
 function apAnalytics() {
   const visits = (appState.analytics?.visits || []).slice(); // copy
 
   if (!visits.length) {
-    return `<div class="ap-empty">No analytics data yet. Visit the site (not admin) to start recording traffic.</div>`;
+    return `<div style="text-align:center;padding:20px">
+      <div class="ap-empty" style="margin-bottom:12px">No analytics cached locally yet.</div>
+      <button class="ap-btn ap-btn-primary" onclick="loadAndShowAnalytics()"
+        style="font-size:12px;padding:8px 20px">&#x1F4E5; Load Analytics History</button>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px">
+        Loads full visit history from the analytics database
+      </div>
+    </div>`;
   }
 
   /* ── Aggregate ────────────────────────────────────────────────────────── */
