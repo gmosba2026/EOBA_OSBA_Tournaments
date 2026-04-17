@@ -178,7 +178,7 @@ tr.s5{border-left:3px solid var(--rank5)}
 .ap-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:none}
 .ap-overlay.open{display:block}
 #adminPanel{
-  position:fixed;right:0;top:0;bottom:0;width:min(420px,100vw);
+  position:fixed;right:0;top:0;bottom:0;width:min(520px,100vw);
   background:var(--surface);border-left:1px solid var(--border);
   z-index:310;transform:translateX(100%);transition:transform .3s;
   display:flex;flex-direction:column;overflow:hidden;
@@ -188,8 +188,8 @@ tr.s5{border-left:3px solid var(--rank5)}
 .ap-title{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;text-transform:uppercase;letter-spacing:1px;color:var(--orange)}
 .ap-close{background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px;line-height:1}
 .ap-close:hover{color:var(--text)}
-.ap-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
-.ap-tab{flex:1;padding:10px 4px;background:transparent;border:none;color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.ap-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.ap-tab{flex:0 0 auto;padding:8px 6px;min-width:0;background:transparent;border:none;color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
 .ap-tab:hover{color:var(--text)}
 .ap-tab.active{color:var(--orange);border-bottom-color:var(--orange)}
 .ap-body{flex:1;overflow-y:auto;padding:16px}
@@ -407,10 +407,12 @@ const DEFAULT_T = {
 // ── STATE ──
 let isAdmin   = false;
 let pollTimer = null;
-let adminTab  = 'tournaments';
+let adminTab   = 'tournaments';
 let loginRole  = null; /* 'admin' | 'gym' | null */
+/* Viewer's tournament selection — completely isolated from appState/cloud syncs */
+let _viewTournId = localStorage.getItem('eoba_view_tid') || null;
 let asgnTournId = null;
-let appState  = { tournaments:[], activeTournamentId:null, officials:[], gymCaptainPin:'0000' };
+let appState  = { tournaments:[], activeTournamentId:null, officials:[], gymCaptainPin:'0000', analytics:{ visits:[] } };
 
 // ── STORAGE ──
 function saveLocal() {
@@ -443,10 +445,11 @@ async function syncToCloud() {
     const payload = {
       version: 2,
       _savedAt: ts,
-      activeTournamentId: appState.activeTournamentId,
+      activeTournamentId: null, /* per-device — not synced */
       officials: appState.officials || [],
       gymCaptainPin: appState.gymCaptainPin || '',
-      tournaments: slimTournaments
+      tournaments: slimTournaments,
+      analytics: appState.analytics || { visits:[] }
     };
     await fetch(BIN_URL, {
       method:'PUT',
@@ -495,9 +498,15 @@ async function loadFromCloud() {
           });
         });
       }
-      if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
+      /* activeTournamentId is a per-device local preference — don't overwrite
+         the user's current selection with whatever another device last saved */
+      // if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
+      // Only set it on first load when we have no selection yet
+      if (!appState.activeTournamentId && rec.activeTournamentId)
+        appState.activeTournamentId = rec.activeTournamentId;
       if (rec.officials)          appState.officials          = rec.officials;
       if (rec.gymCaptainPin)       appState.gymCaptainPin      = rec.gymCaptainPin;
+      if (rec.analytics)           appState.analytics          = rec.analytics;
       /* Re-apply seed fields that cloud data may be missing */
       [DEFAULT_T, DEFAULT_T2].forEach(seed=>{
         const t=appState.tournaments.find(x=>x.id===seed.id);
@@ -552,7 +561,12 @@ function updateSyncStatus() {
 
 // ── GETTERS ──
 function getActive() {
-  return appState.tournaments.find(t => t.id === appState.activeTournamentId) || null;
+  /* Use viewer's local choice first; fall back to appState default */
+  const id = _viewTournId || appState.activeTournamentId;
+  return appState.tournaments.find(t => t.id === id)
+      || appState.tournaments.find(t => t.id === appState.activeTournamentId)
+      || appState.tournaments[0]
+      || null;
 }
 function tName(t, id) { const tm = t.teams.find(m => m.id === id); return tm ? tm.name : id; }
 function tLogo(t, id) { const tm = t.teams.find(m => m.id === id); if (!tm) return null; return tm.logo || BUILTIN[id] || null; }
@@ -1125,8 +1139,8 @@ function setTab(tab) { adminTab=tab; renderAdminPanel(); }
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
   const t=getActive();
-  const allTabs=['tournaments','teams','rosters','officials','assignments','schedule'];
-  const allLabels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',officials:'Officials',assignments:'Assignments',schedule:'Schedule'};
+  const allTabs=['tournaments','teams','rosters','officials','assignments','schedule','analytics'];
+  const allLabels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',officials:'Officials',assignments:'Assignments',schedule:'Schedule',analytics:'Analytics'};
   /* Gym Captain: only see Assignments tab */
   const tabs    = loginRole==='gym' ? ['assignments'] : allTabs;
   const labels  = loginRole==='gym' ? {assignments:'Assignments'} : allLabels;
@@ -1140,6 +1154,7 @@ function renderAdminPanel() {
   else if(adminTab==='officials')   html+=apOfficials(t);
   else if(adminTab==='assignments') html+=apAssignments(t);
   else if(adminTab==='schedule')    html+=apSchedule(t);
+  else if(adminTab==='analytics')   html+=apAnalytics();
   html+='</div>';
   panel.innerHTML=html;
 }
@@ -1303,15 +1318,7 @@ function apCourts(t) {
   if(!t) return '';
   const courts = t.courts||[];
 
-  /* ── Live debug strip: shows every official and their stored role ── */
-  const _dbg = (appState.officials||[]).map(o=>`${o.name}=${o.role}`).join(', ') || 'EMPTY';
-  let h = `<div style="font-size:10px;color:var(--muted);background:rgba(255,255,0,.05);
-    border:1px dashed rgba(255,255,0,.25);border-radius:4px;padding:5px 8px;margin-bottom:8px;
-    word-break:break-all">
-    <strong style="color:var(--orange)">DEBUG — appState.officials:</strong> ${_dbg}
-    &nbsp; <button class="ap-btn ap-btn-sm" onclick="forceMigrateAndSave()" style="font-size:9px;padding:2px 7px">Fix &amp; Save</button>
-  </div>`;
-  h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
     text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">
     Courts / Gyms
   </div>`;
@@ -2409,15 +2416,20 @@ function renderTournSelector() {
   if (!sel) return;
   const ts = appState.tournaments;
   if (!ts.length) { sel.innerHTML = '<option>No tournaments</option>'; return; }
-  sel.innerHTML = ts.map(t =>
-    `<option value="${t.id}" ${t.id===appState.activeTournamentId?'selected':''}>${t.label||t.division+' '+t.stream+' '+t.gender}</option>`
+  const currentId = _viewTournId || appState.activeTournamentId;
+  /* Only rebuild innerHTML if the list itself changed to avoid resetting the visual selection */
+  const newHTML = ts.map(t =>
+    `<option value="${t.id}" ${t.id===currentId?'selected':''}>${t.label||t.division+' '+t.stream+' '+t.gender}</option>`
   ).join('');
+  if (sel.innerHTML !== newHTML) sel.innerHTML = newHTML;
+  /* Ensure the browser shows the right selection even if innerHTML rebuild happened */
+  if (sel.value !== currentId && ts.find(t=>t.id===currentId)) sel.value = currentId;
 }
 
 function switchTournament(id) {
-  appState.activeTournamentId = id;
-  saveLocal();
-  render();
+  _viewTournId = id;
+  localStorage.setItem('eoba_view_tid', id); /* persists across refreshes */
+  render();   /* DO NOT call saveLocal() — keeps viewer choice out of appState */
 }
 
 function render(){
@@ -2476,6 +2488,268 @@ const DEFAULT_T2 = {
 
 // ── INIT ──
 
+// ════════════════════════════════════════════════════════════════════════════
+// EOBA SITE ANALYTICS — client-side visitor tracking
+// Stores: visitorId (localStorage), sessionId (sessionStorage)
+// Records: 1 unique hit per visitor per UTC day
+// Bot filter: common crawler UA patterns excluded
+// Data stored in appState.analytics.visits[] (capped at 500 records)
+// Admin report: Admin Panel → Analytics tab
+// Weekend traffic = visits where UTC day is Saturday (6) or Sunday (0)
+// ════════════════════════════════════════════════════════════════════════════
+
+/* ── Bot filter ─────────────────────────────────────────────────────────── */
+function isBot() {
+  const ua = (navigator.userAgent||'').toLowerCase();
+  const bots = [
+    'bot','crawl','spider','slurp','mediapartners','google','bing','yahoo',
+    'baidu','yandex','facebook','twitter','linkedinbot','whatsapp','telegrambot',
+    'applebot','duckduckbot','bingpreview','ia_archiver','wget','curl','python',
+    'java','httpclient','go-http','node-fetch','axios','lighthouse','pagespeed',
+    'headless','phantom','selenium','puppeteer','playwright','prerender','vercel'
+  ];
+  return bots.some(b => ua.includes(b));
+}
+
+/* ── Visitor / Session ID generation ───────────────────────────────────── */
+function getOrCreateVisitorId() {
+  const KEY = 'eoba_vid';
+  let vid = localStorage.getItem(KEY);
+  if (!vid) {
+    vid = 'v_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    localStorage.setItem(KEY, vid);
+  }
+  return vid;
+}
+
+function getOrCreateSessionId() {
+  const KEY = 'eoba_sid';
+  let sid = sessionStorage.getItem(KEY);
+  if (!sid) {
+    sid = 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+    sessionStorage.setItem(KEY, sid);
+  }
+  return sid;
+}
+
+/* ── Device type inference from UA ─────────────────────────────────────── */
+function getDeviceType() {
+  const ua = navigator.userAgent||'';
+  if (/tablet|ipad|playbook|silk/i.test(ua)) return 'tablet';
+  if (/mobile|android|iphone|ipod|blackberry|windows phone/i.test(ua)) return 'mobile';
+  return 'desktop';
+}
+
+/* ── Dedupe: 1 unique hit per visitor per UTC day ───────────────────────── */
+function alreadyTrackedToday(vid) {
+  const todayUTC = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  const KEY = 'eoba_tracked_' + todayUTC;
+  if (sessionStorage.getItem(KEY) === vid) return true;
+  /* Also check if visits array already has this vid for today */
+  const visits = appState.analytics?.visits || [];
+  const seen = visits.some(v => v.vid === vid && v.ts.slice(0,10) === todayUTC);
+  if (seen) { sessionStorage.setItem(KEY, vid); return true; }
+  return false;
+}
+
+/* ── Record a page visit ────────────────────────────────────────────────── */
+let _analyticsFlushTimer = null;
+
+function recordPageVisit() {
+  if (isBot()) return;                          // skip bots
+  const vid = getOrCreateVisitorId();
+  if (alreadyTrackedToday(vid)) return;         // already counted today
+
+  const sid  = getOrCreateSessionId();
+  const ts   = new Date().toISOString();        // UTC timestamp
+  const todayKey = 'eoba_tracked_' + ts.slice(0,10);
+  sessionStorage.setItem(todayKey, vid);        // mark as tracked in this session
+
+  const visit = {
+    vid,                                        // visitor ID (opaque, no PII)
+    sid,                                        // session ID
+    ts,                                         // UTC timestamp ISO-8601
+    path: location.pathname + location.search,  // page path
+    ref:  document.referrer ? document.referrer.slice(0,120) : '',
+    ua:   (navigator.userAgent||'').slice(0,200), // truncated UA (no IP stored)
+    dev:  getDeviceType(),                      // mobile | tablet | desktop
+    tz:   Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  };
+
+  /* Append to analytics store */
+  if (!appState.analytics) appState.analytics = { visits:[] };
+  appState.analytics.visits.push(visit);
+
+  /* Cap at 1000 visits — keep the most recent */
+  if (appState.analytics.visits.length > 1000) {
+    appState.analytics.visits = appState.analytics.visits.slice(-1000);
+  }
+
+  saveLocal(); /* persist immediately to localStorage */
+
+  /* Debounce cloud flush: batch writes so rapid events don't spam JSONBin */
+  clearTimeout(_analyticsFlushTimer);
+  _analyticsFlushTimer = setTimeout(() => {
+    syncAnalyticsToCloud();
+  }, 4000); /* flush 4 seconds after last visit recorded */
+}
+
+/* ── Dedicated analytics cloud sync (lightweight, no toast) ─────────────── */
+async function syncAnalyticsToCloud() {
+  try {
+    const payload = {
+      version: 2,
+      _savedAt: Date.now(),
+      activeTournamentId: null, /* per-device — not synced */
+      officials: appState.officials || [],
+      gymCaptainPin: appState.gymCaptainPin || '',
+      analytics: appState.analytics || { visits:[] },
+      tournaments: (appState.tournaments||[]).map(t => {
+        const s = {...t};
+        delete s.headerBg;
+        return s;
+      })
+    };
+    await fetch(BIN_URL, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
+      body: JSON.stringify(payload)
+    });
+  } catch(e) { /* silent fail — analytics is best-effort */ }
+}
+
+/* ── Flush before tab closes ────────────────────────────────────────────── */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    clearTimeout(_analyticsFlushTimer);
+    syncAnalyticsToCloud();
+  }
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ANALYTICS REPORT — apAnalytics(t)
+   Shown in Admin Panel → Analytics tab
+   - Total visits | Unique visitors | Weekend traffic | Breakdown by date
+   To view: log in as Admin → click Analytics tab
+   Weekend = Saturday (day 6 UTC) or Sunday (day 0 UTC)
+════════════════════════════════════════════════════════════════════════════ */
+function apAnalytics() {
+  const visits = (appState.analytics?.visits || []).slice(); // copy
+
+  if (!visits.length) {
+    return `<div class="ap-empty">No analytics data yet. Visit the site (not admin) to start recording traffic.</div>`;
+  }
+
+  /* ── Aggregate ────────────────────────────────────────────────────────── */
+  const byDate   = {};   // { 'YYYY-MM-DD': { total, vids: Set, weekend } }
+  const allVids  = new Set();
+
+  visits.forEach(v => {
+    const d    = v.ts.slice(0,10);          // YYYY-MM-DD UTC
+    const dow  = new Date(v.ts).getUTCDay(); // 0=Sun, 6=Sat
+    const isWE = dow === 0 || dow === 6;
+
+    allVids.add(v.vid);
+    if (!byDate[d]) byDate[d] = { total:0, vids:new Set(), weekend:isWE, devices:{} };
+    byDate[d].total++;
+    byDate[d].vids.add(v.vid);
+    byDate[d].devices[v.dev||'desktop'] = (byDate[d].devices[v.dev||'desktop']||0)+1;
+  });
+
+  const dates     = Object.keys(byDate).sort().reverse();
+  const totalHits = visits.length;
+  const totalUniq = allVids.size;
+  const weekendHits = visits.filter(v => {
+    const dow = new Date(v.ts).getUTCDay();
+    return dow === 0 || dow === 6;
+  }).length;
+  const weekendUniq = new Set(
+    visits.filter(v => { const d=new Date(v.ts).getUTCDay(); return d===0||d===6; }).map(v=>v.vid)
+  ).size;
+
+  const firstVisit = visits[0]?.ts?.slice(0,10) || '—';
+  const lastVisit  = visits[visits.length-1]?.ts?.slice(0,10) || '—';
+
+  /* ── Summary cards ────────────────────────────────────────────────────── */
+  function kpi(label, value, sub, color) {
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center">
+      <div style="font-size:22px;font-weight:800;color:${color||'var(--orange)'}">${value}</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-top:2px">${label}</div>
+      ${sub?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${sub}</div>`:''}
+    </div>`;
+  }
+
+  let h = `
+  <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+    text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:10px">
+    Site Traffic Report
+  </div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:12px">
+    Data range: ${firstVisit} &mdash; ${lastVisit} &nbsp;&middot;&nbsp; ${visits.length} events stored
+    &nbsp;&middot;&nbsp; Weekend = Saturday &amp; Sunday (UTC)
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    ${kpi('Total Visits', totalHits, 'all page loads')}
+    ${kpi('Unique Visitors', totalUniq, '1/day per visitor', '#9b59e8')}
+    ${kpi('Weekend Visits', weekendHits, 'Sat + Sun', '#f5c518')}
+    ${kpi('Weekend Unique', weekendUniq, 'distinct visitors', '#f5c518')}
+  </div>
+
+  <!-- Date breakdown table -->
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px">
+    Breakdown by Date
+  </div>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="background:var(--surface2)">
+        <th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.5px">Date</th>
+        <th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Day</th>
+        <th style="text-align:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Visits</th>
+        <th style="text-align:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Unique</th>
+        <th style="text-align:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Mobile</th>
+        <th style="text-align:center;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Desktop</th>
+        <th style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px">Type</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  dates.forEach(d => {
+    const row   = byDate[d];
+    const dow   = new Date(d+'T12:00:00Z').getUTCDay();
+    const dName = DAY_NAMES[dow];
+    const isWE  = row.weekend;
+    const bgRow = isWE ? 'background:rgba(245,197,24,.07)' : '';
+    const badge = isWE
+      ? `<span style="background:rgba(245,197,24,.25);color:#f5c518;font-size:9px;
+           font-weight:700;padding:1px 5px;border-radius:3px">WEEKEND</span>`
+      : '';
+    h += `<tr style="${bgRow}">
+      <td style="padding:5px 10px;border-bottom:1px solid var(--border);font-weight:700">${d}</td>
+      <td style="padding:5px 10px;border-bottom:1px solid var(--border);color:${isWE?'#f5c518':'var(--muted)'}">${dName}</td>
+      <td style="text-align:center;padding:5px 10px;border-bottom:1px solid var(--border)">${row.total}</td>
+      <td style="text-align:center;padding:5px 10px;border-bottom:1px solid var(--border);font-weight:700;color:var(--orange)">${row.vids.size}</td>
+      <td style="text-align:center;padding:5px 10px;border-bottom:1px solid var(--border);color:var(--muted)">${row.devices.mobile||0}</td>
+      <td style="text-align:center;padding:5px 10px;border-bottom:1px solid var(--border);color:var(--muted)">${row.devices.desktop||0}</td>
+      <td style="padding:5px 10px;border-bottom:1px solid var(--border)">${badge}</td>
+    </tr>`;
+  });
+
+  h += `</tbody></table></div>
+
+  <!-- Export hint -->
+  <div style="font-size:10px;color:var(--muted);margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+    &#x1F4CA; <strong>Weekend report query:</strong>
+    Filter visits where <code>day-of-week</code> is 0 (Sun) or 6 (Sat) in UTC.
+    ${weekendHits} weekend visits from ${weekendUniq} unique visitors recorded so far.
+    Data resets if the analytics array is cleared in JSONBin.
+  </div>`;
+
+  return h;
+}
+
 function migrateOfficialRoles() {
   let changed = false;
   if(!appState.officials) { appState.officials = []; }
@@ -2513,9 +2787,16 @@ async function init(){
     appState.tournaments.push(JSON.parse(JSON.stringify(DEFAULT_T2)));
   if(!appState.activeTournamentId)
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
+  /* Seed viewer choice to first tournament on very first visit */
+  if(!_viewTournId) {
+    _viewTournId = appState.activeTournamentId;
+    localStorage.setItem('eoba_view_tid', _viewTournId||'');
+  }
   render();
   await loadFromCloud();
   render(); updateSyncStatus(); startPolling();
+  /* Record page visit after cloud sync so deduplication works correctly */
+  setTimeout(recordPageVisit, 1200);
 }
 init();
 /* Show correct auth state immediately on load */
