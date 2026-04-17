@@ -471,10 +471,24 @@ async function loadFromCloud() {
     const rec  = data.record || {};
     if (rec.version === 2) {
       if (rec.tournaments) {
-        /* Merge strategy: take cloud tournaments but preserve locally-saved officials
-           in case the cloud data hasn't propagated yet (JSONBin eventual consistency) */
+        /* Merge strategy: take cloud tournaments but preserve:
+           1. locally-saved officials (assignment persistence)
+           2. locally-saved team logos (analytics sync strips logos to save space,
+              so the cloud may not have the latest uploaded logos) */
         const localTourneys = appState.tournaments; // pre-cloud (from localStorage)
         appState.tournaments = rec.tournaments;
+
+        /* Restore team logos from localStorage if cloud version is missing them */
+        appState.tournaments.forEach(ct => {
+          const lt = localTourneys.find(x => x.id === ct.id);
+          if (!lt) return;
+          (ct.teams||[]).forEach(ctm => {
+            if (!ctm.logo) {
+              const ltm = (lt.teams||[]).find(x => x.id === ctm.id);
+              if (ltm && ltm.logo) ctm.logo = ltm.logo;
+            }
+          });
+        });
         /* Re-apply any officials that exist locally but not in cloud (recent saves) */
         appState.tournaments.forEach(ct=>{
           const lt = localTourneys.find(x=>x.id===ct.id);
@@ -2581,8 +2595,8 @@ function recordPageVisit() {
   appState.analytics.visits.push(visit);
 
   /* Cap at 1000 visits — keep the most recent */
-  if (appState.analytics.visits.length > 1000) {
-    appState.analytics.visits = appState.analytics.visits.slice(-1000);
+  if (appState.analytics.visits.length > 200) {
+    appState.analytics.visits = appState.analytics.visits.slice(-200);
   }
 
   saveLocal(); /* persist immediately to localStorage */
@@ -2596,19 +2610,26 @@ function recordPageVisit() {
 
 /* ── Dedicated analytics cloud sync (lightweight, no toast) ─────────────── */
 async function syncAnalyticsToCloud() {
+  /* Analytics sync: strip ALL logos + headerBg to keep payload tiny.
+     Logos are preserved by the main syncToCloud() call which runs on every
+     admin action. This sync only needs to record visit counts. */
   try {
+    const slimForAnalytics = (appState.tournaments||[]).map(t => {
+      const s = {...t};
+      delete s.headerBg;
+      /* Strip team logos from analytics sync — they are large and not needed
+         for analytics. Main syncToCloud() is the authoritative logo sync. */
+      if (s.teams) s.teams = s.teams.map(tm => { const st={...tm}; delete st.logo; return st; });
+      return s;
+    });
     const payload = {
       version: 2,
       _savedAt: Date.now(),
-      activeTournamentId: null, /* per-device — not synced */
+      activeTournamentId: null,
       officials: appState.officials || [],
       gymCaptainPin: appState.gymCaptainPin || '',
       analytics: appState.analytics || { visits:[] },
-      tournaments: (appState.tournaments||[]).map(t => {
-        const s = {...t};
-        delete s.headerBg;
-        return s;
-      })
+      tournaments: slimForAnalytics
     };
     await fetch(BIN_URL, {
       method:'PUT',
