@@ -234,7 +234,7 @@ tr.s5{border-left:3px solid var(--rank5)}
     <button class="bbtn" id="refreshBtn">&#x21BB; Refresh</button>
     <button class="bbtn" id="btnManage">&#x2699; Manage</button>
     <button class="bbtn" id="btnLogin">&#x1F512; Admin Login</button>
-    <button class="bbtn" id="btnLogout">&#x1F513; Lock</button>
+    <button class="bbtn" id="btnLogout" onclick="logout()" style="display:none">&#x1F513; Logout</button>
   </div>
 </div>
 
@@ -1157,6 +1157,8 @@ async function init(){
   if(!appState.activeTournamentId)
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
   render();
+  /* If already logged in from previous session, open admin panel automatically */
+  if(isAdmin) { setTimeout(()=>openAdminPanel('tournaments'), 100); }
   await loadFromCloud();
   render(); updateSyncStatus(); startPolling();
 }
