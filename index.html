@@ -867,10 +867,16 @@ function apTeams(t) {
     h+=`<div class="ap-item">
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
         ${logo?`<img src="${logo}" width="36" height="36" style="object-fit:contain;border-radius:4px;flex-shrink:0">`:`<div style="width:36px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px;flex-shrink:0">?</div>`}
-        <div style="min-width:0"><div class="ap-item-name">${tm.name}</div><div class="ap-item-sub">${rCount} player${rCount!==1?'s':''}</div></div>
+        <div style="min-width:0">
+          <div class="ap-item-name">${tm.name}</div>
+          <div class="ap-item-sub">${rCount} player${rCount!==1?'s':''}</div>
+        </div>
       </div>
       <div class="ap-item-actions">
-        <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo<input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')"></label>
+        <button class="ap-btn ap-btn-sm" onclick="openRenameTeam('${t.id}','${tm.id}')">&#x270F; Rename</button>
+        <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo
+          <input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')">
+        </label>
         ${tm.id.startsWith('TM_')?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveTeam('${t.id}','${tm.id}')">Remove</button>`:''}
       </div>
     </div>`;
@@ -899,20 +905,64 @@ function apRosters(t) {
 
 function apSchedule(t) {
   if(!t) return '<div class="ap-empty">No active tournament</div>';
-  let h=`<button class="ap-btn ap-btn-primary" onclick="openAddGame('${t.id}')" style="width:100%;margin-bottom:14px">+ Add Game</button>`;
-  if(!t.games.length) return h+'<div class="ap-empty">No games scheduled yet</div>';
-  t.games.forEach(g=>{
-    const sc=t.scores[g.id]; const done=sc&&sc.home!=null&&sc.away!=null;
-    h+=`<div class="ap-item">
-      <div class="ap-item-info">
-        <div class="ap-item-name" style="font-size:13px">${tName(t,g.home)} vs ${tName(t,g.away)}</div>
-        <div class="ap-item-sub">${g.day} \u00B7 ${g.time}${done?` \u00B7 <span style="color:var(--green)">${sc.home}\u2013${sc.away}</span>`:''}</div>
+  const offs = appState.officials||[];
+  const gcOffs = offs.filter(o=>o.role==='Gym Captain');
+  const ocOffs = offs.filter(o=>o.role==='Off-Court Official');
+
+  function offSel(id, val, pool) {
+    return `<select id="${id}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:4px 6px;font-size:11px">
+      <option value="">-- Unassigned --</option>
+      ${pool.map(o=>`<option value="${o.id}"${o.id===val?' selected':''}>${o.name}</option>`).join('')}
+    </select>`;
+  }
+
+  function gameCard(g, isPO) {
+    const go = g.officials||{};
+    const court = (t.courts||[]).find(c=>c.id===g.court);
+    const title = isPO ? `?? ${g.round||g.label||'Playoff'}` : `${tName(t,g.home)} vs ${tName(t,g.away)}`;
+    const saveCall = `saveGameOfficials('${t.id}','${g.id}',${isPO})`;
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;margin-bottom:8px;${isPO?'border-left:3px solid #f5c518':''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div>
+          <div style="font-weight:700;font-size:13px">${title}</div>
+          <div style="font-size:11px;color:var(--muted)">${g.day||''} · ${g.time||''}${court?' · '+court.name:''}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${!isPO?`<button class="ap-btn ap-btn-sm" onclick="openEditGame('${t.id}','${g.id}')">&#x270F; Edit</button>`:''}
+          <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}">✓ Save</button>
+          ${!isPO?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveGame('${t.id}','${g.id}')">Remove</button>`:''}
+        </div>
       </div>
-      <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveGame('${t.id}',${g.id})">Remove</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--orange);margin-bottom:3px">GC</div>${offSel('f_gc_'+g.id,go.gc,gcOffs)}</div>
+        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Scorekeeper</div>${offSel('f_sk_'+g.id,go.sk,ocOffs)}</div>
+        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Shot Clock</div>${offSel('f_sc_'+g.id,go.sc,ocOffs)}</div>
+        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Game Sheet</div>${offSel('f_gs_'+g.id,go.gs,ocOffs)}</div>
+      </div>
     </div>`;
+  }
+
+  let h = `<button class="ap-btn ap-btn-primary" onclick="openAddGame('${t.id}')" style="width:100%;margin-bottom:14px">+ Add Game</button>`;
+
+  /* Group all games by day */
+  const allGames = [
+    ...(t.games||[]).map(g=>({...g,isPO:false})),
+    ...(t.playoffGames||[]).map(g=>({...g,isPO:true}))
+  ];
+
+  if(!allGames.length) return h + '<div class="ap-empty">No games scheduled yet</div>';
+
+  const byDay = {};
+  allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
+
+  Object.keys(byDay).forEach(day=>{
+    h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--orange);border-bottom:2px solid var(--orange);padding:4px 0 3px;margin:14px 0 8px">${day}</div>`;
+    byDay[day].forEach(g => { h += gameCard(g, g.isPO); });
   });
+
   return h;
 }
+
 
 // ── MODAL HELPERS ──
 function openModal(inner) {
@@ -1575,6 +1625,38 @@ function addOffCourtOfficial() {
   });
   saveLocal(); syncToCloud(); renderAdminPanel();
   showToast('\u2713 Off-Court Official added');
+}
+
+
+function openEditGame(tId, gId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.games||[]).find(x=>x.id===gId); if(!g) return;
+  const cOpts=`<option value="">No court</option>`+(t.courts||[]).map(c=>`<option value="${c.id}"${c.id===g.court?' selected':''}>${c.name}</option>`).join('');
+  const tmOpts=(role,val)=>t.teams.map(tm=>`<option value="${tm.id}"${tm.id===val?' selected':''}>${tm.name}</option>`).join('');
+  openModal(`<div class="modal-box" style="max-width:480px">
+    <div class="modal-title">&#x270F; Edit Game</div>
+    <div class="ap-form">
+      <label>Home</label><select id="eg_home">${tmOpts('home',g.home)}</select>
+      <label>Away</label><select id="eg_away">${tmOpts('away',g.away)}</select>
+      <label>Day</label><input id="eg_day" value="${g.day||''}">
+      <label>Time</label><input id="eg_time" value="${g.time||''}">
+      <label>Court</label><select id="eg_court">${cOpts}</select>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditGame('${tId}','${gId}')">&#x2713; Save</button>
+    </div></div>`);
+}
+function submitEditGame(tId, gId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.games||[]).find(x=>x.id===gId); if(!g) return;
+  g.home=document.getElementById('eg_home').value;
+  g.away=document.getElementById('eg_away').value;
+  g.day=document.getElementById('eg_day').value.trim();
+  g.time=document.getElementById('eg_time').value.trim();
+  g.court=document.getElementById('eg_court').value||null;
+  syncToCloud(); closeModal(); renderAdminPanel();
+  showToast('Game updated ✓');
 }
 
 </script>
