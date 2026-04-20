@@ -373,11 +373,19 @@ let appState  = { tournaments:[], activeTournamentId:null };
 function saveLocal() {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin })); } catch(e) {}
 }
+const SEED_OFFICIALS = [{"id": "o_u13_1", "name": "Rich Reitano", "role": "Gym Captain", "phone": "613-720-9470", "email": ""}, {"id": "o_u13_2", "name": "Jack Dotten", "role": "Gym Captain", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_u13_3", "name": "Allison Harvey", "role": "Gym Captain", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_u13_4", "name": "Antoni Reitano", "role": "Off-Court Official", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_u13_5", "name": "Sammy El", "role": "Off-Court Official", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_u13_6", "name": "Mitchell Dotten", "role": "Off-Court Official", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_u13_7", "name": "Carson Harvey", "role": "Off-Court Official", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_u13_8", "name": "Samatar Bakal", "role": "Off-Court Official", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_u13_9", "name": "Kaity Harvey", "role": "Off-Court Official", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_u13_10", "name": "Jack Dotten", "role": "Off-Court Official", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_u13_11", "name": "Raheem Tanimowo", "role": "Off-Court Official", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
+
 function loadLocal() {
   try {
     const d = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     if (d.appState) appState = d.appState;
     isAdmin = !!d.isAdmin;
+    /* If no officials saved yet, use seed data from Excel import */
+    if (!appState.officials || appState.officials.length === 0) {
+      appState.officials = JSON.parse(JSON.stringify(SEED_OFFICIALS));
+    }
+    if (!appState.soloTournament) appState.soloTournament = null;
+    if (!appState.analytics) appState.analytics = {days:{}};
   } catch(e) {}
 }
 async function syncToCloud() {
@@ -860,6 +868,16 @@ function apTournaments() {
         </div>
         <div class="ap-item-actions">
           ${!active?`<button class="ap-btn ap-btn-sm" onclick="setActive('${t.id}');renderAdminPanel()">Set Active</button>`:''}
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--muted)">
+            <div style="position:relative;width:34px;height:18px;flex-shrink:0">
+              <input type="checkbox" id="solo_${t.id}" ${appState.soloTournament===t.id?'checked':''}
+                onchange="setSoloTournament(this.checked?'${t.id}':null)"
+                style="opacity:0;position:absolute;width:100%;height:100%;cursor:pointer;margin:0;z-index:1">
+              <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${appState.soloTournament===t.id?'var(--orange)':'var(--border)'};border-radius:9px;transition:background .2s"></div>
+              <div style="position:absolute;top:2px;left:${appState.soloTournament===t.id?'18px':'2px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left .2s"></div>
+            </div>
+            Show only this tournament publicly
+          </label>
           <button class="ap-btn ap-btn-sm" onclick="openEditTournament('${t.id}')">&#x270F; Edit</button>
           ${t.id!=='eoba_u13_2026'&&t.id!=='eoba_u17_2026'?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmDeleteT('${t.id}')">Delete</button>`:''}
         </div>
@@ -1229,6 +1247,11 @@ const DEFAULT_T2 = {
 // ── INIT ──
 async function init(){
   loadLocal();
+  /* Seed officials from U13 AAA Boys tournament if pool is empty */
+  if(!appState.officials || appState.officials.length === 0) {
+    appState.officials = [{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
+    saveLocal();
+  }
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
@@ -1402,8 +1425,33 @@ function apOfficials(t) {
       ${officialOpts(ocGroup,'Off-Court Official')}</select>
     <div id="officialDetail_oc" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
   </div>`;
+  /* Excel import button */
+  h+=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:10px 14px;margin-bottom:12px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:6px">
+      &#x1F4CA; Import Officials from Excel
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+      Excel columns: <strong>A=Name, B=Role, C=Phone, D=Email</strong><br>
+      Role must be exactly: <code>Gym Captain</code> or <code>Off-Court Official</code>
+    </div>
+    <label class="ap-btn ap-btn-primary" style="cursor:pointer;display:inline-block">
+      &#x1F4CE; Choose Excel File (.xlsx)
+      <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
+    </label>
+  </div>`;
   h+=`<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:12px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
+    <div style="background:var(--bg);border:1.5px dashed var(--border);border-radius:7px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+        &#x1F4CA; <strong>Import from Excel/CSV</strong> &nbsp;&#x2014;&nbsp;
+        Columns: <code>A=Name &nbsp; B=Role &nbsp; C=Phone &nbsp; D=Email</code><br>
+        <span style="font-size:10px">Role: <em>Gym Captain</em> or <em>Off-Court Official</em></span>
+      </div>
+      <label class="ap-btn ap-btn-primary" style="cursor:pointer;font-size:11px;display:inline-block">
+        &#x1F4CE; Import Excel / CSV
+        <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
+      </label>
+    </div>
     <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
       <div><label>Role</label>
         <select id="f_or">
@@ -1686,6 +1734,99 @@ function submitEditGame(tId, gId) {
   g.court=document.getElementById('eg_court').value||null;
   syncToCloud(); closeModal(); renderAdminPanel();
   showToast('Game updated ✓');
+}
+
+
+// ── EXCEL OFFICIALS IMPORT ───────────────────────────────────────────────────
+function importOfficialsExcel(e) {
+  const file = e.target.files[0]; if(!file) return;
+  /* Load SheetJS dynamically if not present */
+  function processWorkbook(wb) {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if(!rows.length){ showToast('Empty file', true); return; }
+    /* Skip header row if first cell looks like a header */
+    const startRow = (rows[0][0]||'').toLowerCase().includes('name') ? 1 : 0;
+    let added=0, skipped=0;
+    if(!appState.officials) appState.officials=[];
+    const existingNames = new Set(appState.officials.map(o=>o.name.toLowerCase().trim()));
+    for(let i=startRow; i<rows.length; i++){
+      const row = rows[i];
+      const name  = (row[0]||'').toString().trim();
+      const role  = (row[1]||'').toString().trim();
+      const phone = (row[2]||'').toString().trim();
+      const email = (row[3]||'').toString().trim().toLowerCase();
+      if(!name){ skipped++; continue; }
+      /* Normalize role */
+      let normRole = 'Off-Court Official';
+      if(role.toLowerCase().includes('gym') || role.toLowerCase().includes('captain'))
+        normRole = 'Gym Captain';
+      else if(role.toLowerCase().includes('off') || role.toLowerCase().includes('court'))
+        normRole = 'Off-Court Official';
+      else if(role){ skipped++; continue; } /* unknown role */
+      if(existingNames.has(name.toLowerCase())){skipped++;continue;}
+      appState.officials.push({id:'o'+Date.now()+'_'+i, role:normRole, name, phone, email});
+      existingNames.add(name.toLowerCase());
+      added++;
+    }
+    syncToCloud(); renderAdminPanel();
+    showToast('\u2713 Imported '+added+' officials'+(skipped?' ('+skipped+' skipped)':''));
+  }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      if(typeof XLSX !== 'undefined'){
+        const wb = XLSX.read(ev.target.result, {type:'array'});
+        processWorkbook(wb);
+      } else {
+        /* Load SheetJS from CDN then process */
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload = () => {
+          const wb = XLSX.read(ev.target.result, {type:'array'});
+          processWorkbook(wb);
+        };
+        s.onerror = () => {
+          /* Fallback: try CSV parse */
+          try {
+            const text = new TextDecoder().decode(ev.target.result);
+            const lines = text.split('\n').filter(l=>l.trim());
+            const startRow = lines[0].toLowerCase().includes('name') ? 1 : 0;
+            if(!appState.officials) appState.officials=[];
+            const existingNames=new Set(appState.officials.map(o=>o.name.toLowerCase()));
+            let added=0;
+            for(let i=startRow;i<lines.length;i++){
+              const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').trim());
+              const name=cols[0]||''; if(!name) continue;
+              const role=(cols[1]||'').toLowerCase().includes('gym')?'Gym Captain':'Off-Court Official';
+              if(existingNames.has(name.toLowerCase())) continue;
+              appState.officials.push({id:'o'+Date.now()+'_'+i,role,name,phone:cols[2]||'',email:(cols[3]||'').toLowerCase()});
+              existingNames.add(name.toLowerCase()); added++;
+            }
+            syncToCloud(); renderAdminPanel();
+            showToast('\u2713 Imported '+added+' officials (CSV mode)');
+          } catch(err){ showToast('Import failed - try CSV format',true); }
+        };
+        document.head.appendChild(s);
+      }
+    } catch(err){ showToast('Import failed: '+err.message, true); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+
+// ── SOLO TOURNAMENT DISPLAY ──────────────────────────────────────────────────
+function setSoloTournament(id) {
+  appState.soloTournament = id || null;
+  syncToCloud();
+  renderAdminPanel();
+  render();
+  if(id) {
+    const t = appState.tournaments.find(x=>x.id===id);
+    showToast('✓ Showing only: '+(t?t.label||t.name:'selected tournament'));
+  } else {
+    showToast('✓ Showing all tournaments');
+  }
 }
 
 </script>
