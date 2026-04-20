@@ -494,17 +494,11 @@ async function syncToCloud() {
       tournaments: slimTournaments,
       analytics: { days: (appState.analytics&&appState.analytics.days)||{} }
     };
-    const _ctrl = new AbortController();
-    const _timer = setTimeout(() => _ctrl.abort(), 8000);
-    let resp;
-    try {
-      resp = await fetch(BIN_URL + BIN_ID, {
-        method:'PUT',
-        headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
-        body: JSON.stringify(payload),
-        signal: _ctrl.signal
-      });
-    } finally { clearTimeout(_timer); }
+    const resp = await fetch(BIN_URL + BIN_ID, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
+      body: JSON.stringify(payload)
+    });
 
     if (resp && resp.ok) {
       appState._savedAt = ts;
@@ -529,17 +523,9 @@ async function syncToCloud() {
 async function loadFromCloud() {
   try {
     /* Try to fetch from current bin */
-    const _ctrl = new AbortController();
-    const _timer = setTimeout(() => _ctrl.abort(), 10000);
-    let res;
-    try {
-      res = await fetch(BIN_URL + BIN_ID + '/latest', {
-        headers:{'X-Master-Key':BIN_KEY},
-        signal: _ctrl.signal
-      });
-    } finally {
-      clearTimeout(_timer);
-    }
+    const res = await fetch(BIN_URL + BIN_ID + '/latest', {
+      headers:{'X-Master-Key':BIN_KEY}
+    });
 
     /* If bin doesn't exist (404) or forbidden (403), create a new one */
     if (res.status === 404 || res.status === 403) {
