@@ -509,10 +509,17 @@ async function syncToCloud() {
 async function loadFromCloud() {
   try {
     /* Try to fetch from current bin */
-    const res = await fetch(BIN_URL + BIN_ID + '/latest', {
-      headers:{'X-Master-Key':BIN_KEY},
-      signal: AbortSignal.timeout(10000)
-    });
+    const _ctrl = new AbortController();
+    const _timer = setTimeout(() => _ctrl.abort(), 10000);
+    let res;
+    try {
+      res = await fetch(BIN_URL + BIN_ID + '/latest', {
+        headers:{'X-Master-Key':BIN_KEY},
+        signal: _ctrl.signal
+      });
+    } finally {
+      clearTimeout(_timer);
+    }
 
     /* If bin doesn't exist (404) or forbidden (403), create a new one */
     if (res.status === 404 || res.status === 403) {
