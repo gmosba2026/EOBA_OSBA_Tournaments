@@ -1017,7 +1017,52 @@ function apSchedule(t) {
     </div>`;
   }
 
-  let h = `<button class="ap-btn ap-btn-primary" onclick="openAddGame('${t.id}')" style="width:100%;margin-bottom:14px">+ Add Game</button>`;
+  /* ── VENUES MANAGEMENT ─────────────────────────────────────── */
+  let h = '';
+
+  /* Venues/Courts section */
+  const courts = t.courts||[];
+  h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:8px">
+      &#x1F3EB; Venues / Gyms (${courts.length})
+      <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none"> — used in game edit dropdown</span>
+    </div>`;
+
+  /* List existing courts */
+  if(courts.length) {
+    h += `<div style="margin-bottom:10px">`;
+    courts.forEach(c => {
+      const murl = c.address ? 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(c.address) : '';
+      h += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">${c.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${c.address||'No address set'}</div>
+        </div>
+        ${murl?`<a href="${murl}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:3px 8px;border-radius:4px;text-decoration:none;flex-shrink:0">&#x1F4CD; Map</a>`:''}
+        <button class="ap-btn ap-btn-sm" onclick="openEditCourt('${t.id}','${c.id}')" style="flex-shrink:0">&#x270F; Edit</button>
+        <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeCourt('${t.id}','${c.id}')" style="flex-shrink:0">Remove</button>
+      </div>`;
+    });
+    h += `</div>`;
+  } else {
+    h += `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">No venues added yet — add them below so they appear in the game edit dropdown.</div>`;
+  }
+
+  /* Add new court form */
+  h += `<div style="display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:end;margin-top:4px">
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Venue Name</div>
+      <input id="f_cn_${t.id}" placeholder="e.g. St. Francis Xavier HS" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:12px">
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Full Address</div>
+      <input id="f_ca_${t.id}" placeholder="e.g. 3740 Spratt Rd, Gloucester ON" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:12px">
+    </div>
+    <button class="ap-btn ap-btn-primary" onclick="addCourtFromSchedule('${t.id}')" style="white-space:nowrap">+ Add Venue</button>
+  </div>
+  </div>`;
+
+  h += `<button class="ap-btn ap-btn-primary" onclick="openAddGame('${t.id}')" style="width:100%;margin-bottom:14px">+ Add Game</button>`;
 
   /* Group all games by day */
   const allGames = [
@@ -1261,9 +1306,9 @@ const DEFAULT_T2 = {
     { id:'g6_u17', day:'Sat, Apr 25', time:'3:30 PM',  home:'OSS',  away:'PRBC', court:'c_ot', officials:{} }
   ],
   courts: [
-    { id:'c_ot', name:'Osgoode Township HS', address:'2800 8th Line Rd, Metcalfe ON K0A 2P0' },
-    { id:'c_mm', name:'Mino Mikan ES',        address:'820 Miikana Rd, Ottawa ON' },
-    { id:'c_vr', name:'Vimy Ridge PS',         address:'4180 Kelly Farm Dr, Ottawa ON K1T 4J2' }
+    { id:'c_ot', name:'Osgoode Township High School', address:'2800 8th Line Rd, Metcalfe ON K0A 2P0' },
+    { id:'c_mm', name:'Mino Mikan Elementary School', address:'820 Miikana Rd, Ottawa ON K1T 0G8' },
+    { id:'c_vr', name:'Vimy Ridge Public School', address:'4180 Kelly Farm Dr, Ottawa ON K1T 4J2' }
   ],
   playoffGames: [
     { id:'pg1_u17', round:'Bronze Medal Game', label:'3rd Place vs 4th Place',
@@ -1859,6 +1904,52 @@ function setSoloTournament(id) {
   } else {
     showToast('✓ Showing all tournaments');
   }
+}
+
+
+function addCourtFromSchedule(tId) {
+  const t = appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const nameEl = document.getElementById('f_cn_'+tId);
+  const addrEl = document.getElementById('f_ca_'+tId);
+  const name = nameEl ? nameEl.value.trim() : '';
+  const addr = addrEl ? addrEl.value.trim() : '';
+  if(!name) return showToast('Enter venue name', true);
+  if(!t.courts) t.courts = [];
+  t.courts.push({ id:'c_'+Date.now(), name, address:addr });
+  if(nameEl) nameEl.value='';
+  if(addrEl) addrEl.value='';
+  syncToCloud(); renderAdminPanel();
+  showToast('\u2713 Venue added — now available in game edit dropdown');
+}
+
+function openEditCourt(tId, cId) {
+  const t = appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const c = (t.courts||[]).find(x=>x.id===cId); if(!c) return;
+  openModal(`<div class="modal-box" style="max-width:500px">
+    <div class="modal-title">&#x270F; Edit Venue</div>
+    <div class="ap-form">
+      <label>Venue Name</label>
+      <input id="ec_name" value="${c.name||''}" placeholder="e.g. St. Francis Xavier HS">
+      <label>Full Address</label>
+      <input id="ec_addr" value="${c.address||''}" placeholder="e.g. 3740 Spratt Rd, Gloucester ON">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditCourt('${tId}','${cId}')">&#x2713; Save</button>
+    </div></div>`);
+  setTimeout(()=>document.getElementById('ec_name')?.focus(), 80);
+}
+
+function submitEditCourt(tId, cId) {
+  const t = appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const c = (t.courts||[]).find(x=>x.id===cId); if(!c) return;
+  const name = document.getElementById('ec_name')?.value.trim();
+  const addr = document.getElementById('ec_addr')?.value.trim();
+  if(!name) return showToast('Enter venue name', true);
+  c.name = name;
+  c.address = addr || '';
+  syncToCloud(); closeModal(); renderAdminPanel();
+  showToast('\u2713 Venue updated');
 }
 
 </script>
