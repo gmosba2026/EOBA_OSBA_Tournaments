@@ -579,7 +579,15 @@ async function loadFromCloud() {
       // Only set it on first load when we have no selection yet
       if (!appState.activeTournamentId && rec.activeTournamentId)
         appState.activeTournamentId = rec.activeTournamentId;
-      if (rec.officials)          appState.officials          = rec.officials;
+      /* Only update officials from cloud if cloud has data.
+         If cloud has empty array [], preserve any locally stored officials
+         to avoid wiping data that hasn't synced yet. */
+      if (rec.officials && rec.officials.length > 0) {
+        appState.officials = rec.officials;
+      } else if (!appState.officials || appState.officials.length === 0) {
+        appState.officials = rec.officials || [];
+      }
+      /* else: cloud is empty but local has officials — keep local */
       if (rec.gymCaptainPin)       appState.gymCaptainPin      = rec.gymCaptainPin;
       if (rec.analytics) appState.analytics = rec.analytics;
       /* Re-apply seed fields that cloud data may be missing */
@@ -613,7 +621,10 @@ async function loadFromCloud() {
       /* Roles were stale in cloud — push the corrected data back up now */
       syncToCloud();
     }
-  } catch(e) {}
+  } catch(e) {
+    console.error('[EOBA] loadFromCloud failed:', e);
+    /* Keep whatever is in localStorage — do not wipe */
+  }
 }
 async function manualRefresh() {
   const btn = document.getElementById('refreshBtn');
@@ -2259,6 +2270,14 @@ async function init(){
   await loadFromCloud();
   render(); updateSyncStatus(); startPolling();
   setTimeout(recordPageVisit, 1200);
+  /* ── Startup diagnostic ── */
+  console.log('[EOBA] App loaded.');
+  console.log('[EOBA] Tournaments:', appState.tournaments.length);
+  console.log('[EOBA] Officials:', (appState.officials||[]).length);
+  const _totalGames = appState.tournaments.reduce((s,t)=>s+(t.games||[]).length+(t.playoffGames||[]).length,0);
+  console.log('[EOBA] Total games:', _totalGames);
+  console.log('[EOBA] Active tournament:', appState.activeTournamentId);
+  if((appState.officials||[]).length===0) console.warn('[EOBA] WARNING: No officials loaded — check JSONBin data');
 }
 init();
 (function(){
