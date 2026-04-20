@@ -1628,6 +1628,307 @@ async function saveGameOfficials(tId, gId, isPO) {
 }
 
 
+// ── OFFICIALS ADMIN TAB ──────────────────────────────────────────────────────
+function apOfficials(t) {
+  const offs = appState.officials||[];
+  const gcGroup = offs.filter(o=>o.role==='Gym Captain');
+  const ocGroup = offs.filter(o=>o.role==='Off-Court Official');
+
+  function officialOpts(group, label) {
+    if(!group.length) return `<option value="">— No ${label}s added yet —</option>`;
+    return `<option value="">— Select a ${label} —</option>`
+      + group.map(o=>`<option value="${o.id}">${o.name}</option>`).join('');
+  }
+
+  let h = `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+    text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">
+    Officials Pool
+    <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">
+      &nbsp;(shared across all tournaments)
+    </span>
+  </div>`;
+
+  /* GC dropdown */
+  h += `<div style="margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--orange);margin-bottom:4px">&#x1F6A9; Gym Captains (${gcGroup.length})</div>
+    <select id="gcSelector" onchange="showOfficialDetail('gc')"
+      style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
+      color:var(--text);padding:7px 10px;font-size:13px">
+      ${officialOpts(gcGroup,'Gym Captain')}
+    </select>
+    <div id="officialDetail_gc" style="display:none;background:var(--surface2);border:1px solid var(--border);
+      border-left:3px solid var(--orange);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+
+  /* Off-Court dropdown */
+  h += `<div style="margin-bottom:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--muted);margin-bottom:4px">&#x1F4CB; Off-Court Officials (${ocGroup.length})
+      <span style="font-weight:400;text-transform:none"> — Scorekeeper / Shot Clock / Game Sheet</span>
+    </div>
+    <select id="ocSelector" onchange="showOfficialDetail('oc')"
+      style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;
+      color:var(--text);padding:7px 10px;font-size:13px">
+      ${officialOpts(ocGroup,'Off-Court Official')}
+    </select>
+    <div id="officialDetail_oc" style="display:none;background:var(--surface2);border:1px solid var(--border);
+      border-left:3px solid var(--muted);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+
+  /* Add Official form */
+  h += `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:12px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+      text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:4px">Add Official</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+      <strong>Gym Captain</strong> = assigned to one gym. &nbsp;
+      <strong>Off-Court Official</strong> = fills Scorekeeper, Shot Clock, or Game Sheet roles.
+    </div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;flex-wrap:wrap">
+      <div><label>Role</label>
+        <select id="f_or">
+          <option value="Gym Captain">Gym Captain</option>
+          <option value="Off-Court Official">Off-Court Official</option>
+        </select>
+      </div>
+      <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
+      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
+      <div><label>Email (e-transfer)</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
+      <button class="ap-btn ap-btn-primary" style="white-space:nowrap" onclick="addOfficial()">Add</button>
+    </div>
+  </div>`;
+  return h;
+}
+
+function showOfficialDetail(key) {
+  const sel    = document.getElementById(key==='gc'?'gcSelector':'ocSelector');
+  const detail = document.getElementById('officialDetail_'+key);
+  if(!sel||!detail) return;
+  const oId = sel.value;
+  if(!oId) { detail.style.display='none'; return; }
+  const o = (appState.officials||[]).find(x=>x.id===oId);
+  if(!o) { detail.style.display='none'; return; }
+  detail.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13px">${o.name}
+          <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">${o.role}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:5px;font-size:11px;color:var(--muted)">
+          ${o.phone?`<span>&#x1F4DE; ${o.phone}</span>`:''}
+          ${o.email?`<span>&#x2709; <a href="mailto:${o.email}" style="color:var(--muted)">${o.email}</a></span>`:''}
+        </div>
+      </div>
+      <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>
+      <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>
+    </div>`;
+  detail.style.display = '';
+}
+
+function forceMigrateAndSave() {
+  if(!appState.officials) appState.officials=[];
+  const seen = new Set(appState.officials.map(o=>o.id));
+  (appState.tournaments||[]).forEach(t=>{
+    (t.officials||[]).forEach(o=>{
+      if(!o.role||o.role!=='Gym Captain') o.role='Off-Court Official';
+      if(!seen.has(o.id)){ appState.officials.push({...o}); seen.add(o.id); }
+    });
+    t.officials=[];
+  });
+  appState.officials.forEach(o=>{ if(o.role!=='Gym Captain') o.role='Off-Court Official'; });
+  syncToCloud(); renderAdminPanel();
+  showToast('\u2713 Officials migrated and saved');
+}
+
+// ── ASSIGNMENTS ADMIN TAB ────────────────────────────────────────────────────
+function apAssignments(t) {
+  const tournList = appState.tournaments||[];
+  if(!tournList.length) return '<div class="ap-empty">No tournaments.</div>';
+  if(!asgnTournId) asgnTournId = (t&&t.id) || tournList[0]?.id || null;
+  const tourn = tournList.find(x=>x.id===asgnTournId) || tournList[0];
+  if(!tourn) return '<div class="ap-empty">No tournament selected.</div>';
+
+  const offs = appState.officials||[];
+  const gcOffs = offs.filter(o=>o.role==='Gym Captain');
+  const ocOffs = offs.filter(o=>o.role==='Off-Court Official');
+
+  function offSel(id, val, pool) {
+    const opts = `<option value="">-- Unassigned --</option>`
+      + pool.map(o=>`<option value="${o.id}"${o.id===val?' selected':''}>${o.name}</option>`).join('');
+    return `<select id="${id}" style="width:100%;background:var(--bg);border:1px solid var(--border);
+      border-radius:5px;color:var(--text);padding:5px 7px;font-size:12px">${opts}</select>`;
+  }
+
+  /* Tournament picker */
+  let h = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="flex:1;min-width:200px">
+      <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px">Tournament</label>
+      <select onchange="asgnTournId=this.value;renderAdminPanel()"
+        style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px">
+        ${tournList.map(tx=>`<option value="${tx.id}"${tx.id===asgnTournId?' selected':''}>${tx.label||tx.name}</option>`).join('')}
+      </select>
+    </div>
+    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()"
+      style="font-size:11px;font-weight:700;white-space:nowrap">&#x1F4CB; Print / Export All</button>
+  </div>`;
+
+  /* GC can add off-court officials inline */
+  if(loginRole==='gym') {
+    h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--orange);margin-bottom:6px">+ Add Off-Court Official</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+        <div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">First Name</div>
+          <input id="gc_offFirst" placeholder="First" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
+        <div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Last Name</div>
+          <input id="gc_offLast" placeholder="Last" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
+        <div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Phone</div>
+          <input id="gc_offPhone" placeholder="613-555-0100" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
+        <div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Email (e-transfer)</div>
+          <input id="gc_offEmail" type="email" placeholder="name@email.com" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 9px;font-size:13px" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
+        <button class="ap-btn ap-btn-primary" onclick="addOffCourtOfficial()" style="font-size:11px;white-space:nowrap;padding:7px 14px">&#x2795; Add</button>
+      </div>
+    </div>`;
+  }
+
+  /* Group games by day */
+  const allGames = [
+    ...(tourn.games||[]).map(g=>({...g,isPO:false})),
+    ...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))
+  ];
+  if(!allGames.length) { h += '<div class="ap-empty">No games scheduled.</div>'; return h; }
+
+  const byDay = {};
+  allGames.forEach(g=>{ const d=g.day||'TBD'; if(!byDay[d]) byDay[d]=[]; byDay[d].push(g); });
+
+  Object.keys(byDay).forEach(day=>{
+    h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11px;
+      text-transform:uppercase;letter-spacing:1.5px;color:var(--orange);border-bottom:2px solid var(--orange);
+      padding:4px 0 3px;margin:14px 0 8px">${day}</div>`;
+
+    byDay[day].forEach(g=>{
+      const go = g.officials||{};
+      const court = (tourn.courts||[]).find(c=>c.id===g.court);
+      const courtLbl = court ? court.name : '';
+      const isRR = !g.isPO;
+      const saveCall = `saveGameOfficials('${tourn.id}','${g.id}',${g.isPO})`;
+
+      /* Game label */
+      const gameLbl = g.isPO
+        ? `&#x1F3C6; ${g.round||g.label||'Playoff'}`
+        : `${tName(tourn,g.home)} vs ${tName(tourn,g.away)}`;
+
+      h += `<div style="background:var(--surface2);border:1px solid var(--border);
+        border-radius:7px;padding:10px 12px;margin-bottom:8px;
+        ${g.isPO?'border-left:3px solid var(--gold,#f5c518)':''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+          <div>
+            <div style="font-weight:700;font-size:13px">${gameLbl}</div>
+            <div style="font-size:11px;color:var(--muted)">${g.time||''} ${courtLbl?'&middot; '+courtLbl:''}</div>
+          </div>
+          <button class="ap-btn ap-btn-sm ap-btn-primary" onclick="${saveCall}"
+            style="font-size:11px">&#x2713; Save</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--orange);margin-bottom:3px">GC</div>
+            ${offSel('f_gc_'+g.id, go.gc, gcOffs)}
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Scorekeeper</div>
+            ${offSel('f_sk_'+g.id, go.sk, ocOffs)}
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Shot Clock</div>
+            ${offSel('f_sc_'+g.id, go.sc, ocOffs)}
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px">Game Sheet</div>
+            ${offSel('f_gs_'+g.id, go.gs, ocOffs)}
+          </div>
+        </div>
+      </div>`;
+    });
+  });
+
+  /* Bottom print button */
+  h += `<div style="margin-top:18px;padding-top:14px;border-top:2px solid var(--border);text-align:center">
+    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()"
+      style="font-size:13px;font-weight:700;padding:10px 24px">
+      &#x1F4B0; Print Assignments &amp; Fee Summary
+    </button>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px">
+      Includes GC fees ($25/game) &middot; Off-Court fees ($20/game) &middot; e-transfer emails
+    </div>
+  </div>`;
+  return h;
+}
+
+function addOffCourtOfficial() {
+  const first = (document.getElementById('gc_offFirst')?.value.trim())||'';
+  const last  = (document.getElementById('gc_offLast')?.value.trim())||'';
+  const name  = (first+' '+last).trim();
+  if(!name) return showToast('Enter a first or last name', true);
+  if(!appState.officials) appState.officials=[];
+  appState.officials.push({
+    id:'o'+Date.now(), role:'Off-Court Official', name,
+    phone: document.getElementById('gc_offPhone')?.value.trim()||'',
+    email: document.getElementById('gc_offEmail')?.value.trim().toLowerCase()||''
+  });
+  ['gc_offFirst','gc_offLast','gc_offPhone','gc_offEmail'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  saveLocal(); syncToCloud(); renderAdminPanel();
+  showToast('\u2713 Off-Court Official added');
+}
+
+// ── RENAME TEAM ──────────────────────────────────────────────────────────────
+function openRenameTeam(tId, tmId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  openModal(`<div class="modal-box"><div class="modal-title">Rename Team</div>
+    <div class="ap-form">
+      <label>Team Name</label>
+      <input id="f_rn" value="${tm.name}" autofocus>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitRenameTeam('${tId}','${tmId}')">Save</button>
+    </div></div>`);
+  setTimeout(()=>{ const i=document.getElementById('f_rn'); if(i){i.focus();i.select();} },80);
+}
+
+function submitRenameTeam(tId, tmId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  const newName=document.getElementById('f_rn').value.trim();
+  if(!newName) return showToast('Enter a name',true);
+  tm.name=newName;
+  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Team renamed \u2713');
+}
+
+// ── COURT DETAIL ─────────────────────────────────────────────────────────────
+function showCourtDetail(tId) {
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const sel=document.getElementById('courtSelector');
+  const detail=document.getElementById('courtDetail_'+tId);
+  if(!sel||!detail) return;
+  const cId=sel.value;
+  if(!cId){ detail.style.display='none'; return; }
+  const c=(t.courts||[]).find(x=>x.id===cId);
+  if(!c){ detail.style.display='none'; return; }
+  const murl=c.address?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`:'';
+  detail.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px">${c.name}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.address||'No address set'}</div>
+    </div>
+    ${murl?`<a href="${murl}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:3px 8px;border-radius:4px;text-decoration:none">&#x1F4CD; Map</a>`:''}
+    <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeCourt('${tId}','${c.id}')">Remove</button>
+  </div>`;
+  detail.style.display='';
+}
+
+
 function migrateOfficialRoles() {
   let changed = false;
   if(!appState.officials) { appState.officials = []; }
