@@ -508,7 +508,10 @@ async function syncToCloud() {
 }
 async function loadFromCloud() {
   try {
-    const res  = await fetch(BIN_URL + '/latest', { headers:{'X-Master-Key':BIN_KEY} });
+    const res  = await fetch(BIN_URL + '/latest', {
+      headers:{'X-Master-Key':BIN_KEY},
+      signal: AbortSignal.timeout(10000)  /* 10 second timeout */
+    });
     const data = await res.json();
     const rec  = data.record || {};
     if (rec.version === 2) {
@@ -624,6 +627,9 @@ async function loadFromCloud() {
   } catch(e) {
     console.error('[EOBA] loadFromCloud failed:', e);
     /* Keep whatever is in localStorage — do not wipe */
+    /* Still run migration on local data in case officials need role normalization */
+    migrateOfficialRoles();
+    saveLocal();
   }
 }
 async function manualRefresh() {
@@ -2007,10 +2013,16 @@ function renderTournSelector() {
   const sel=document.getElementById('tPicker'); if(!sel) return;
   const ts=appState.tournaments;
   if(!ts.length){sel.innerHTML='<option>No tournaments</option>';return;}
-  const cur=_viewTournId||appState.activeTournamentId;
+  /* Always ensure a valid selection — fall back to first tournament if nothing set */
+  let cur=_viewTournId||appState.activeTournamentId;
+  if(!cur||!ts.find(t=>t.id===cur)) {
+    cur = ts[0].id;
+    _viewTournId = cur;
+    localStorage.setItem('eoba_view_tid', cur);
+  }
   const nh=ts.map(t=>`<option value="${t.id}"${t.id===cur?' selected':''}>${t.label||t.name}</option>`).join('');
   if(sel.innerHTML!==nh) sel.innerHTML=nh;
-  if(sel.value!==cur&&ts.find(t=>t.id===cur)) sel.value=cur;
+  sel.value=cur;
 }
 function switchTournament(id){_viewTournId=id;localStorage.setItem('eoba_view_tid',id);render();}
 function renderOfficials(t){const s=document.getElementById('officialsSection');if(s)s.style.display='none';}
