@@ -691,13 +691,17 @@ function renderTeams(t) {
 
 function renderStandings(t,st) {
   const el=document.getElementById('sBody'); if(!el) return;
+  const medals = getMedalWinners(t);
   if(!t||!st||!st.length){el.innerHTML='<tr><td colspan="9" style="padding:16px;color:var(--muted);text-align:center">No games played yet</td></tr>';return;}
   el.innerHTML=st.map((tm,i)=>{
     const r=i+1, dc=tm.diff>0?'pos-diff':tm.diff<0?'neg-diff':'zero-diff';
     const ds=tm.diff>0?'+'+tm.diff:String(tm.diff);
     const sep=tm.sepBy||'';
     const ssc=(sep==='H2H'||sep==='H2H Diff')?'color:var(--gold);font-weight:700':sep==='Draw'?'color:var(--muted)':tm.capDiffVal>0?'color:var(--green);font-weight:700':tm.capDiffVal<0?'color:var(--red);font-weight:700':tm.capDiffVal===0&&sep?'color:var(--muted);font-weight:700':'color:var(--muted)';
-    return `<tr class="s${r}"><td><span class="rk rk${r}">${r}</span></td><td><div class="tcell">${li(tLogo(t,tm.id),26)}<span>${tm.name}</span></div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td><td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td></tr>`;
+    return `<tr class="s${r}"><td><span class="rk rk${r}">${r}</span></td><td><div class="tcell">${li(tLogo(t,tm.id),26)}<span>${tm.name}</span>${
+      medals.gold===tm.id   ? ' ??' :
+      medals.silver===tm.id ? ' ??' :
+      medals.bronze===tm.id ? ' ??' : ''}</div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td><td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td></tr>`;
   }).join('');
 }
 
@@ -773,6 +777,7 @@ function renderBracket(t,st) {
   const bEl=document.getElementById('bracketBody'), nEl=document.getElementById('bracketNote');
   if(!bEl) return;
   if(!t){bEl.innerHTML='';return;}
+  const medals = getMedalWinners(t);
   const defs=playoffDefs(t.teams.length);
   if(!defs.length){if(nEl)nEl.textContent='';bEl.innerHTML='<div style="padding:16px;color:var(--muted);font-style:italic">No playoff format for '+t.teams.length+' teams</div>';return;}
   if(!allRRDone(t)){
@@ -794,8 +799,8 @@ function renderBracket(t,st) {
       sa=done?`<div class="bentry"><button class="cbtn" onclick="doClearPlayoff('${t.id}','${d.id}')">Clear</button></div>`:`<div class="bentry"><div class="sinps" style="margin-top:4px"><input type="number" id="ph_${t.id}_${d.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="pa_${t.id}_${d.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" style="margin-top:6px" onclick="doSavePlayoff('${t.id}','${d.id}')">Save</button></div>`;
     }
     html+=`<div class="bgame"><div class="bround">${d.round}</div><div class="btime">${d.time}</div>
-      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${info.homeTeam.name}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
-      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${info.awayTeam.name}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
+      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${info.homeTeam.name}${medals.gold===info.homeTeam.id?' ??':medals.silver===info.homeTeam.id?' ??':medals.bronze===info.homeTeam.id?' ??':''}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
+      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${info.awayTeam.name}${medals.gold===info.awayTeam.id?' ??':medals.silver===info.awayTeam.id?' ??':medals.bronze===info.awayTeam.id?' ??':''}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
       ${sa}</div>`;
   });
   html+='</div>';
