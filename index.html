@@ -1,3 +1,11 @@
+
+async function createNewBin() {
+  /* JSONBin auto-create disabled - bin account not available.
+     App operates in localStorage mode. Use Export/Import for backup. */
+  console.warn('[EOBA] JSONBin unavailable - running in local-only mode');
+  showToast('Running in local mode — use Export to backup officials', true);
+}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -469,43 +477,55 @@ function loadLocal() {
   } catch(e) {}
 }
 async function syncToCloud() {
-  saveLocal();
+  saveLocal(); /* Always save locally first */
   try {
     const ts = Date.now();
-    /* Strip large base64 logos + headerBg before upload — they are hardcoded in
-       seeds and restored on every load, so storing them wastes cloud space and
-       can cause the PUT to fail silently when the payload exceeds JSONBin limits. */
     const slimTournaments = (appState.tournaments||[]).map(t => {
       const slim = {...t};
-      /* Strip headerBg (66KB gym banner) — restored from seed on load */
       delete slim.headerBg;
-      /* Keep tm.logo: uploaded logos are 120px max (~5KB each), safe to store in cloud.
-         Seed team logos are also kept — the seed merge only fills in missing logos,
-         so cloud logos are always authoritative for custom-uploaded images. */
       return slim;
     });
     const payload = {
       version: 2,
       _savedAt: ts,
-      activeTournamentId: null, /* per-device — not synced */
+      activeTournamentId: null,
       officials: appState.officials || [],
       gymCaptainPin: appState.gymCaptainPin || '',
       tournaments: slimTournaments,
-      analytics: { days: (appState.analytics && appState.analytics.days) ? appState.analytics.days : {} }
+      analytics: { days: (appState.analytics&&appState.analytics.days)||{} }
     };
-    await fetch(BIN_URL, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
-      body: JSON.stringify(payload)
-    });
-    appState._savedAt = ts; /* timestamp used for local-vs-cloud merge decisions */
-    saveLocal();
-    updateSyncStatus();
-    showToast('✓ Saved');
+    const _ctrl = new AbortController();
+    const _timer = setTimeout(() => _ctrl.abort(), 8000);
+    let resp;
+    try {
+      resp = await fetch(BIN_URL + BIN_ID, {
+        method:'PUT',
+        headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
+        body: JSON.stringify(payload),
+        signal: _ctrl.signal
+      });
+    } finally { clearTimeout(_timer); }
+
+    if (resp && resp.ok) {
+      appState._savedAt = ts;
+      saveLocal();
+      updateSyncStatus();
+      showToast('\u2713 Saved');
+    } else {
+      /* Bin gone or error - just save locally */
+      console.warn('[EOBA] Cloud save failed ('+resp?.status+') - saved locally');
+      updateSyncStatus();
+      showToast('\u2713 Saved locally');
+    }
   } catch(e) {
-    showToast('Saved locally — check connection', true);
+    /* Network error or abort - just save locally, no toast spam */
+    console.warn('[EOBA] syncToCloud:', e.message||e);
+    updateSyncStatus();
+    showToast('\u2713 Saved locally');
   }
 }
+
+
 async function loadFromCloud() {
   try {
     /* Try to fetch from current bin */
@@ -1268,7 +1288,11 @@ function renderAdminPanel() {
 }
 
 function apTournaments() {
-  let h=`<button class="ap-btn ap-btn-primary" onclick="openCreateT()" style="width:100%;margin-bottom:14px">+ Create New Tournament</button>`;
+  let h=`<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="ap-btn ap-btn-primary" onclick="openCreateT()" style="flex:1;min-width:160px">+ Create New Tournament</button>
+    <button class="ap-btn" onclick="exportData()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;white-space:nowrap">&#x2B07; Export Data</button>
+    <label class="ap-btn" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;white-space:nowrap">&#x2B06; Import Data<input type="file" accept=".json" style="display:none" onchange="importData(event)"></label>
+  </div>`;
   if(!appState.tournaments.length) return h+'<div class="ap-empty">No tournaments yet</div>';
   appState.tournaments.forEach(t=>{
     const active=t.id===appState.activeTournamentId;
@@ -2292,6 +2316,67 @@ function printAllAssignments(){
   const body=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Assignments - ${tourn.label||tourn.name}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:24px}h1{font-size:18px;color:#1a0a2e}h2{font-size:13px;color:#6b2fa0;border-bottom:2px solid #6b2fa0;padding-bottom:2px;margin:18px 0 6px}table{width:100%;border-collapse:collapse}th{background:#1a0a2e;color:#fff;padding:5px 8px;text-align:left;font-size:10px}td{padding:5px 8px;border:1px solid #ddd}.grand{background:#6b2fa0;color:#fff;font-weight:bold;font-size:13px;padding:8px 12px;text-align:right;margin-top:6px;border-radius:4px}.btns{text-align:center;margin-top:20px}@media print{.btns{display:none}}</style></head><body><h1>${tourn.label||tourn.name} — Assignments &amp; Fees</h1><p style="color:#888;font-size:10px">${new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p><h2>Schedule &amp; Assignments</h2>${sched}<h2>&#x1F6A9; Gym Captain Fees — $${GC}.00/game</h2><table><thead><tr><th>Name &amp; Phone</th><th>Email</th><th style="text-align:center">Games</th><th style="text-align:center">Rate</th><th style="text-align:right">Total</th></tr></thead><tbody>${feeRows(gcFees,GC)}</tbody><tfoot><tr style="background:#f0ebff;font-weight:bold"><td colspan="4" style="text-align:right;padding:5px 8px">Subtotal</td><td style="text-align:right;padding:5px 8px">$${gcTot}</td></tr></tfoot></table><h2>&#x1F4CB; Off-Court Official Fees — $${OC}.00/game</h2><table><thead><tr><th>Name &amp; Phone</th><th>Email (e-transfer)</th><th style="text-align:center">Games</th><th style="text-align:center">Rate</th><th style="text-align:right">Total</th></tr></thead><tbody>${feeRows(ocFees,OC)}</tbody><tfoot><tr style="background:#f0ebff;font-weight:bold"><td colspan="4" style="text-align:right;padding:5px 8px">Subtotal</td><td style="text-align:right;padding:5px 8px">$${ocTot}</td></tr></tfoot></table><div class="grand">&#x1F4B0; Grand Total: $${grand}</div><div class="btns"><button onclick="window.print()" style="padding:8px 24px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:bold">&#x1F5A8; Print / Save PDF</button> <button onclick="window.close()" style="padding:8px 16px;background:#f3f4f6;border:1px solid #ccc;border-radius:6px;font-size:13px;cursor:pointer">Close</button></div></body></html>`;
   try{const blob=new Blob([body],{type:'text/html'});const url=URL.createObjectURL(blob);const w=window.open(url,'_blank');if(!w){window.location.href='data:text/html;charset=utf-8,'+encodeURIComponent(body);}}
   catch(e){const iframe=document.createElement('iframe');iframe.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';iframe.srcdoc=body;document.body.appendChild(iframe);const cb=document.createElement('button');cb.textContent='\u00d7 Close';cb.style.cssText='position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';cb.onclick=()=>{iframe.remove();cb.remove();};document.body.appendChild(cb);}
+}
+
+// ── DATA BACKUP / RESTORE ────────────────────────────────────────────────────
+function exportData() {
+  const data = {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    officials: appState.officials || [],
+    gymCaptainPin: appState.gymCaptainPin || '',
+    tournaments: (appState.tournaments||[]).map(t => {
+      const s = {...t}; delete s.headerBg; return s;
+    })
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'EOBA_backup_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('\u2713 Data exported');
+}
+
+function importData(e) {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if(!data.version || !data.tournaments) {
+        showToast('Invalid backup file', true); return;
+      }
+      if(data.officials && data.officials.length > 0) {
+        appState.officials = data.officials;
+      }
+      if(data.gymCaptainPin) appState.gymCaptainPin = data.gymCaptainPin;
+      /* Merge tournament data - preserve seed structure */
+      data.tournaments.forEach(imported => {
+        const existing = appState.tournaments.find(t => t.id === imported.id);
+        if(existing) {
+          /* Restore scores, games officials, rosters */
+          if(imported.scores) existing.scores = imported.scores;
+          if(imported.playoffScores) existing.playoffScores = imported.playoffScores;
+          if(imported.rosters) existing.rosters = imported.rosters;
+          if(imported.teams) existing.teams = imported.teams;
+          if(imported.games) existing.games = imported.games;
+          if(imported.courts) existing.courts = imported.courts;
+          if(imported.gymCaptainPin) existing.gymCaptainPin = imported.gymCaptainPin;
+          if(imported.gymCaptainEmail) existing.gymCaptainEmail = imported.gymCaptainEmail;
+        }
+      });
+      migrateOfficialRoles();
+      saveLocal();
+      syncToCloud();
+      render(); renderAdminPanel();
+      showToast('\u2713 Data imported - ' + (data.officials||[]).length + ' officials restored');
+    } catch(err) {
+      showToast('Import failed: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
 }
 
 function migrateOfficialRoles() {
