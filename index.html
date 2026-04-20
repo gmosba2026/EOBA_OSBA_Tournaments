@@ -822,8 +822,13 @@ function renderAdminPanel() {
   const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',
     officials:'Officials',assignments:'Assignments',schedule:'Schedule'};
   const title=loginRole==='gym'?'\uD83D\uDEA9 Gym Captain':'\u2699\uFE0F Admin Panel';
-  let html=`<div class="ap-header"><div class="ap-title">${title}</div>
-    <button class="ap-close" onclick="closeAdminPanel()">\u2715</button></div>
+  let html=`<div class="ap-header">
+    <div class="ap-title">${title}</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button onclick="logout()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.35);border-radius:5px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">&#x1F513; Logout</button>
+      <button class="ap-close" onclick="closeAdminPanel()">\u2715</button>
+    </div>
+  </div>
   <div class="ap-tabs">${tabs.map(tab=>
     `<button class="ap-tab${adminTab===tab?' active':''}" onclick="setTab('${tab}')">${labels[tab]}</button>`
   ).join('')}</div><div class="ap-body">`;
@@ -838,19 +843,43 @@ function renderAdminPanel() {
 }
 
 function apTournaments() {
-  let h=`<button class="ap-btn ap-btn-primary" onclick="openCreateT()" style="width:100%;margin-bottom:14px">+ Create New Tournament</button>`;
+  let h=`<div style="display:flex;gap:8px;margin-bottom:14px">
+    <button class="ap-btn ap-btn-primary" onclick="openCreateT()" style="flex:1">+ Create New Tournament</button>
+    <button class="ap-btn" onclick="exportData()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:11px">⬇ Export</button>
+    <label class="ap-btn" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:11px">⬆ Import<input type="file" accept=".json" style="display:none" onchange="importData(event)"></label>
+  </div>`;
   if(!appState.tournaments.length) return h+'<div class="ap-empty">No tournaments yet</div>';
   appState.tournaments.forEach(t=>{
     const active=t.id===appState.activeTournamentId;
-    h+=`<div class="ap-item${active?' ap-item-active':''}">
-      <div class="ap-item-info">
-        <div class="ap-item-name">${t.name}</div>
-        <div class="ap-item-sub">${t.division} ${t.stream} ${t.gender} \u00B7 ${t.dates}</div>
-        ${active?'<span class="ap-badge">Active</span>':''}
+    h+=`<div class="ap-item${active?' ap-item-active':''}" style="flex-direction:column;align-items:stretch;gap:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div class="ap-item-info" style="flex:1">
+          <div class="ap-item-name">${t.name||t.label}</div>
+          <div class="ap-item-sub">${t.division||''} ${t.stream||''} ${t.gender||''} · ${t.dates||''}</div>
+          ${active?'<span class="ap-badge">Active</span>':''}
+        </div>
+        <div class="ap-item-actions">
+          ${!active?`<button class="ap-btn ap-btn-sm" onclick="setActive('${t.id}');renderAdminPanel()">Set Active</button>`:''}
+          <button class="ap-btn ap-btn-sm" onclick="openEditTournament('${t.id}')">&#x270F; Edit</button>
+          ${t.id!=='eoba_u13_2026'&&t.id!=='eoba_u17_2026'?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmDeleteT('${t.id}')">Delete</button>`:''}
+        </div>
       </div>
-      <div class="ap-item-actions">
-        ${!active?`<button class="ap-btn ap-btn-sm" onclick="setActive('${t.id}');renderAdminPanel()">Set Active</button>`:''}
-        ${t.id!=='eoba_u13_2026'?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmDeleteT('${t.id}')">Delete</button>`:''}
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end">
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--orange);margin-bottom:4px">&#x1F6A9; Gym Captain PIN</div>
+            <input id="gc_pin_${t.id}" value="${t.gymCaptainPin||''}" placeholder="e.g. 1234"
+              style="width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 10px;font-size:16px;letter-spacing:4px;font-weight:700"
+              maxlength="10" oninput="appState.tournaments.find(x=>x.id==='${t.id}').gymCaptainPin=this.value;syncToCloud()">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">PIN used by Gym Captain to log in</div>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px">&#x2709; Gym Captain Email</div>
+            <input id="gc_email_${t.id}" value="${t.gymCaptainEmail||''}" placeholder="gc@email.com" type="email"
+              style="width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:5px;color:var(--text);padding:6px 10px;font-size:13px"
+              oninput="appState.tournaments.find(x=>x.id==='${t.id}').gymCaptainEmail=this.value;syncToCloud()">
+          </div>
+        </div>
       </div>
     </div>`;
   });
