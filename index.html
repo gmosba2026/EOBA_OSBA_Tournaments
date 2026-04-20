@@ -1048,6 +1048,7 @@ function tryLogin() {
   if(v===PIN){
     isAdmin=true; loginRole='admin';
     saveLocal(); closePinModal(); render();
+    openAdminPanel('tournaments');
     showToast('\u26A1 Admin unlocked');
   } else if(v===gcPin){
     isAdmin=true; loginRole='gym';
@@ -1059,18 +1060,32 @@ function tryLogin() {
     setTimeout(()=>inp.className='pin-input',400); inp.value=''; inp.focus();
   }
 }
-function logout(){isAdmin=false;saveLocal();closeAdminPanel();render();showToast('Locked.');}
+function logout(){isAdmin=false;loginRole=null;localStorage.removeItem('eoba_login_role');saveLocal();closeAdminPanel();render();showToast('Logged out');}
 
 function updateBanner() {
   const bn=document.getElementById('modeBanner'), lb=document.getElementById('modeLabel');
   const lI=document.getElementById('btnLogin'), lO=document.getElementById('btnLogout'), mg=document.getElementById('btnManage');
+  const bA=document.getElementById('btnAdminLogin'), bG=document.getElementById('btnGymLogin');
   if(!bn) return;
-  if(isAdmin){bn.className='admin-mode';lb.textContent='\u26A1 Gym Captain Editing Mode';lI.style.display='none';lO.style.display='';mg.style.display='';}
-  else{bn.className='view-mode';lb.textContent='View Only Mode';lI.style.display='';lO.style.display='none';mg.style.display='none';}
+  if(isAdmin){
+    bn.className='admin-mode';
+    lb.textContent=(loginRole==='gym')?'GYM CAPTAIN MODE':'ADMIN MODE';
+    if(lI) lI.style.display='none';
+    if(lO) lO.style.display='';
+    if(mg) mg.style.display=(loginRole==='admin')?'':'none';
+    if(bA) bA.style.display='none';
+    if(bG) bG.style.display='none';
+  } else {
+    bn.className='view-mode';
+    lb.textContent='View Only Mode';
+    if(lI) lI.style.display='';
+    if(lO) lO.style.display='none';
+    if(mg) mg.style.display='none';
+    if(bA) bA.style.display='';
+    if(bG) bG.style.display='';
+  }
 }
 
-// ── TOAST ──
-let _tt;
 function showToast(msg,err=false){
   const el=document.getElementById('toast');
   el.textContent=msg; el.style.background=err?'#2d1e1e':'#1e2d1e'; el.style.color=err?'var(--red)':'var(--green)'; el.style.borderColor=err?'rgba(239,68,68,.4)':'rgba(34,197,94,.4)';
