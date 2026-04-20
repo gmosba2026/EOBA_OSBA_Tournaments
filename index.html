@@ -1139,17 +1139,28 @@ function closeAdminPanel() {
 function setTab(tab) { adminTab=tab; renderAdminPanel(); }
 
 function renderAdminPanel() {
-  const panel=document.getElementById('adminPanel'); if(!panel) return;
-  const t=getActive();
-  const tabs=['tournaments','teams','rosters','schedule'];
-  const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',schedule:'Schedule'};
-  let html=`<div class="ap-header"><div class="ap-title">\u2699\uFE0F Admin Panel</div><button class="ap-close" onclick="closeAdminPanel()">\u2715</button></div>
-  <div class="ap-tabs">${tabs.map(tab=>`<button class="ap-tab${adminTab===tab?' active':''}" onclick="setTab('${tab}')">${labels[tab]}</button>`).join('')}</div>
-  <div class="ap-body">`;
-  if(adminTab==='tournaments') html+=apTournaments();
-  else if(adminTab==='teams')  html+=apTeams(t);
-  else if(adminTab==='rosters') html+=apRosters(t);
-  else if(adminTab==='schedule') html+=apSchedule(t);
+  const panel = document.getElementById('adminPanel'); if(!panel) return;
+  const t = getActive();
+  const adminTabs = ['tournaments','teams','rosters','officials','assignments','schedule','analytics'];
+  const gcTabs    = ['assignments','schedule'];
+  const tabs      = loginRole === 'gym' ? gcTabs : adminTabs;
+  const labels    = {
+    tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',
+    officials:'Officials',assignments:'Assignments',schedule:'Schedule',analytics:'Analytics'
+  };
+  const title = loginRole==='gym' ? '\uD83D\uDEA9 Gym Captain' : '\u2699\uFE0F Admin Panel';
+  let html=`<div class="ap-header"><div class="ap-title">${title}</div>
+    <button class="ap-close" onclick="closeAdminPanel()">\u2715</button></div>
+  <div class="ap-tabs">${tabs.map(tab=>
+    `<button class="ap-tab${adminTab===tab?' active':''}" onclick="setTab('${tab}')">${labels[tab]}</button>`
+  ).join('')}</div><div class="ap-body">`;
+  if(adminTab==='tournaments')      html+=apTournaments();
+  else if(adminTab==='teams')       html+=apTeams(t);
+  else if(adminTab==='rosters')     html+=apRosters(t);
+  else if(adminTab==='officials')   html+=apOfficials(t);
+  else if(adminTab==='assignments') html+=apAssignments(t);
+  else if(adminTab==='schedule')    html+=apSchedule(t);
+  else if(adminTab==='analytics')   html+=apAnalytics();
   html+='</div>';
   panel.innerHTML=html;
 }
@@ -1354,11 +1365,22 @@ function openPinModal() {
 }
 function closePinModal() { document.getElementById('pinModal').className='modal-overlay'; }
 function tryLogin() {
-  const v=document.getElementById('pinInput').value.trim();
-  if(v===PIN){isAdmin=true;saveLocal();closePinModal();render();showToast('Gym Captain Access unlocked');}
-  else{
+  const v = document.getElementById('pinInput').value.trim();
+  const activeTourney = getActive();
+  const gcPin = (activeTourney && activeTourney.gymCaptainPin)
+    ? activeTourney.gymCaptainPin
+    : (appState.gymCaptainPin || '0000');
+  if (v === PIN) {
+    isAdmin=true; loginRole='admin';
+    saveLocal(); closePinModal(); render();
+    showToast('\u26A1 Admin mode unlocked');
+  } else if (v === gcPin) {
+    isAdmin=true; loginRole='gym';
+    saveLocal(); closePinModal(); render();
+    showToast('\uD83D\uDEA9 Gym Captain mode unlocked');
+  } else {
     const inp=document.getElementById('pinInput'); inp.className='pin-input error';
-    document.getElementById('pinError').textContent='Incorrect PIN.';
+    document.getElementById('pinError').textContent='Incorrect PIN. Try again.';
     setTimeout(()=>inp.className='pin-input',400); inp.value=''; inp.focus();
   }
 }
@@ -1928,6 +1950,230 @@ function showCourtDetail(tId) {
   detail.style.display='';
 }
 
+
+function renderTournSelector() {
+  const sel=document.getElementById('tPicker'); if(!sel) return;
+  const ts=appState.tournaments;
+  if(!ts.length){sel.innerHTML='<option>No tournaments</option>';return;}
+  const cur=_viewTournId||appState.activeTournamentId;
+  const nh=ts.map(t=>`<option value="${t.id}"${t.id===cur?' selected':''}>${t.label||t.name}</option>`).join('');
+  if(sel.innerHTML!==nh) sel.innerHTML=nh;
+  if(sel.value!==cur&&ts.find(t=>t.id===cur)) sel.value=cur;
+}
+function switchTournament(id){_viewTournId=id;localStorage.setItem('eoba_view_tid',id);render();}
+function renderOfficials(t){const s=document.getElementById('officialsSection');if(s)s.style.display='none';}
+function addOfficial(){
+  const name=document.getElementById('f_on').value.trim();
+  if(!name) return showToast('Enter name',true);
+  if(!appState.officials) appState.officials=[];
+  appState.officials.push({id:'o'+Date.now(),
+    role:document.getElementById('f_or').value, name,
+    phone:document.getElementById('f_op').value.trim(),
+    email:document.getElementById('f_oe').value.trim().toLowerCase()
+  });
+  syncToCloud(); renderAdminPanel(); showToast('Official added \u2713');
+}
+function openEditOfficial(oId){
+  const o=(appState.officials||[]).find(x=>x.id===oId); if(!o) return;
+  openModal(`<div class="modal-box" style="max-width:480px">
+    <div class="modal-title">&#x270F; Edit Official</div>
+    <div class="ap-form">
+      <label>Role</label>
+      <select id="eo_role">${['Gym Captain','Off-Court Official'].map(r=>
+        `<option value="${r}"${r===o.role?' selected':''}>${r}</option>`).join('')}</select>
+      <label>Name</label><input id="eo_name" value="${o.name||''}">
+      <label>Phone</label><input id="eo_phone" value="${o.phone||''}" placeholder="613-555-0100">
+      <label>Email</label><input id="eo_email" type="email" value="${o.email||''}" placeholder="name@email.com">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditOfficial('${oId}')">&#x2713; Save</button>
+    </div></div>`);
+  setTimeout(()=>document.getElementById('eo_name')?.focus(),80);
+}
+function submitEditOfficial(oId){
+  const o=(appState.officials||[]).find(x=>x.id===oId); if(!o) return;
+  o.role=document.getElementById('eo_role').value;
+  o.name=document.getElementById('eo_name').value.trim()||o.name;
+  o.phone=document.getElementById('eo_phone').value.trim();
+  o.email=document.getElementById('eo_email').value.trim().toLowerCase();
+  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Official updated \u2713');
+}
+function removeOfficial(oId){
+  if(!confirm('Remove this official?')) return;
+  appState.officials=(appState.officials||[]).filter(o=>o.id!==oId);
+  syncToCloud(); renderAdminPanel();
+}
+function addCourt(tId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const name=document.getElementById('f_cn').value.trim();
+  if(!name) return showToast('Enter court name',true);
+  if(!t.courts) t.courts=[];
+  t.courts.push({id:'c_'+Date.now(),name,address:document.getElementById('f_ca').value.trim()});
+  document.getElementById('f_cn').value='';
+  document.getElementById('f_ca').value='';
+  syncToCloud(); renderAdminPanel(); showToast('Court added \u2713');
+}
+function removeCourt(tId,cId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t||!t.courts) return;
+  if(!confirm('Remove this court?')) return;
+  t.courts=t.courts.filter(c=>c.id!==cId);
+  syncToCloud(); renderAdminPanel(); showToast('Court removed');
+}
+function openEditTournament(tId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  openModal(`<div class="modal-box" style="max-width:540px">
+    <div class="modal-title">&#x270F; Edit Tournament</div>
+    <div class="ap-form">
+      <label>Name</label><input id="et_nm" value="${t.name||''}">
+      <label>Display Label</label><input id="et_lb" value="${t.label||''}">
+      <label>Division</label><input id="et_dv" value="${t.division||''}">
+      <label>Stream</label><input id="et_st" value="${t.stream||''}">
+      <label>Gender</label>
+      <select id="et_gn">${['Boys','Girls','Mixed'].map(g=>`<option${g===t.gender?' selected':''}>${g}</option>`).join('')}</select>
+      <label>Dates</label><input id="et_dt" value="${t.dates||''}">
+      <label>Location</label><input id="et_lc" value="${t.location||''}">
+      <label>Host</label><input id="et_hs" value="${t.host||''}">
+      <label>&#x1F6A9; Gym Captain PIN</label>
+      <input id="et_gc" value="${t.gymCaptainPin||''}" placeholder="e.g. 1234" maxlength="10"
+        style="letter-spacing:3px;font-weight:700">
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">PIN Gym Captains use to log in for this tournament</div>
+      <label>&#x2709; Gym Captain Email</label>
+      <input id="et_ge" value="${t.gymCaptainEmail||''}" placeholder="gc@email.com" type="email">
+      <label style="grid-column:1/-1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+        <input type="checkbox" id="et_cd" ${t.showCapDiff?'checked':''} style="width:16px;height:16px;accent-color:var(--orange)">
+        <span>Show Capped Differential column in standings</span>
+      </label>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditTournament('${tId}')">&#x2713; Save</button>
+    </div></div>`);
+}
+function submitEditTournament(tId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  t.name=document.getElementById('et_nm').value.trim()||t.name;
+  t.label=document.getElementById('et_lb').value.trim()||t.label;
+  t.division=document.getElementById('et_dv').value.trim()||t.division;
+  t.stream=document.getElementById('et_st').value.trim()||t.stream;
+  t.gender=document.getElementById('et_gn').value;
+  t.dates=document.getElementById('et_dt').value.trim();
+  t.location=document.getElementById('et_lc').value.trim();
+  t.host=document.getElementById('et_hs').value.trim();
+  t.showCapDiff=document.getElementById('et_cd')?.checked||false;
+  t.gymCaptainPin=document.getElementById('et_gc')?.value.trim()||'';
+  t.gymCaptainEmail=document.getElementById('et_ge')?.value.trim()||'';
+  syncToCloud(); closeModal(); render(); renderAdminPanel(); showToast('Tournament updated \u2713');
+}
+function openEditGame(tId,gId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.games||[]).find(x=>x.id===gId); if(!g) return;
+  const tmOpts=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.home?' selected':''}>${tm.name}</option>`).join('');
+  const tmOptsAway=t.teams.map(tm=>`<option value="${tm.id}"${tm.id===g.away?' selected':''}>${tm.name}</option>`).join('');
+  const cOpts=`<option value="">No court</option>`+(t.courts||[]).map(c=>`<option value="${c.id}"${c.id===g.court?' selected':''}>${c.name}</option>`).join('');
+  const offs=appState.officials||[];
+  const offOpts=id=>`<option value="">-- None --</option>`+offs.map(o=>`<option value="${o.id}"${o.id===id?' selected':''}>${o.role}: ${o.name}</option>`).join('');
+  const go=g.officials||{};
+  openModal(`<div class="modal-box" style="max-width:500px">
+    <div class="modal-title">Edit Game</div>
+    <div class="ap-form">
+      <label>Home</label><select id="eg_home">${tmOpts}</select>
+      <label>Away</label><select id="eg_away">${tmOptsAway}</select>
+      <label>Day</label><input id="eg_day" value="${g.day||''}">
+      <label>Time</label><input id="eg_time" value="${g.time||''}">
+      <label>Court</label><select id="eg_court">${cOpts}</select>
+      <label>GC</label><select id="eg_gc">${offOpts(go.gc)}</select>
+      <label>Scorekeeper</label><select id="eg_sk">${offOpts(go.sk)}</select>
+      <label>Shot Clock</label><select id="eg_sc">${offOpts(go.sc)}</select>
+      <label>Game Sheet</label><select id="eg_gs">${offOpts(go.gs)}</select>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditGame('${tId}','${gId}')">&#x2713; Save</button>
+    </div></div>`);
+}
+function submitEditGame(tId,gId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.games||[]).find(x=>x.id===gId); if(!g) return;
+  g.home=document.getElementById('eg_home').value;
+  g.away=document.getElementById('eg_away').value;
+  g.day=document.getElementById('eg_day').value.trim();
+  g.time=document.getElementById('eg_time').value.trim();
+  g.court=document.getElementById('eg_court').value||null;
+  function nvl(id){const el=document.getElementById(id);return(el&&el.value)?el.value:null;}
+  g.officials={gc:nvl('eg_gc'),sk:nvl('eg_sk'),sc:nvl('eg_sc'),gs:nvl('eg_gs')};
+  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Game updated \u2713');
+}
+function openEditPlayoffGame(tId,pgId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.playoffGames||[]).find(x=>x.id===pgId); if(!g) return;
+  const cOpts=`<option value="">No court</option>`+(t.courts||[]).map(c=>`<option value="${c.id}"${c.id===g.court?' selected':''}>${c.name}</option>`).join('');
+  const offs=appState.officials||[];
+  const offOpts=id=>`<option value="">-- None --</option>`+offs.map(o=>`<option value="${o.id}"${o.id===id?' selected':''}>${o.role}: ${o.name}</option>`).join('');
+  const go=g.officials||{};
+  openModal(`<div class="modal-box" style="max-width:500px">
+    <div class="modal-title">Edit Playoff Game</div>
+    <div class="ap-form">
+      <label>Day</label><input id="epg_day" value="${g.day||''}">
+      <label>Time</label><input id="epg_time" value="${g.time||''}">
+      <label>Court</label><select id="epg_court">${cOpts}</select>
+      <label>GC</label><select id="epg_gc">${offOpts(go.gc)}</select>
+      <label>Scorekeeper</label><select id="epg_sk">${offOpts(go.sk)}</select>
+      <label>Shot Clock</label><select id="epg_sc">${offOpts(go.sc)}</select>
+      <label>Game Sheet</label><select id="epg_gs">${offOpts(go.gs)}</select>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-ok" onclick="submitEditPlayoffGame('${tId}','${pgId}')">&#x2713; Save</button>
+    </div></div>`);
+}
+function submitEditPlayoffGame(tId,pgId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const g=(t.playoffGames||[]).find(x=>x.id===pgId); if(!g) return;
+  g.day=document.getElementById('epg_day').value.trim();
+  g.time=document.getElementById('epg_time').value.trim();
+  g.court=document.getElementById('epg_court').value||null;
+  function nvl(id){const el=document.getElementById(id);return(el&&el.value)?el.value:null;}
+  g.officials={gc:nvl('epg_gc'),sk:nvl('epg_sk'),sc:nvl('epg_sc'),gs:nvl('epg_gs')};
+  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Playoff game updated \u2713');
+}
+
+function printAllAssignments(){
+  const tournList=appState.tournaments||[];
+  if(!tournList.length) return;
+  if(!asgnTournId&&tournList.length) asgnTournId=tournList[0].id;
+  const tourn=tournList.find(x=>x.id===asgnTournId)||tournList[0];
+  if(!tourn){alert('No tournament selected.');return;}
+  const offs=appState.officials||[];
+  const offObj=id=>offs.find(x=>x.id===id)||null;
+  const offName=id=>{const o=offObj(id);return o?o.name:'';};
+  const allGames=[...(tourn.games||[]).map(g=>({...g,isPO:false})),...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))];
+  if(!allGames.length){alert('No games scheduled.');return;}
+  const byDay={};
+  allGames.forEach(g=>{const d=g.day||'TBD';if(!byDay[d])byDay[d]=[];byDay[d].push(g);});
+  const gcFees={},ocFees={};
+  allGames.forEach(g=>{
+    const go=g.officials||{};
+    const label=g.isPO?(g.round||g.id):(tName(tourn,g.home)+' vs '+tName(tourn,g.away));
+    const gi={label,day:g.day||'',time:g.time||''};
+    if(go.gc){const o=offObj(go.gc);if(o){if(!gcFees[go.gc])gcFees[go.gc]={name:o.name,phone:o.phone||'',email:o.email||'',games:[]};gcFees[go.gc].games.push(gi);}}
+    ['sk','sc','gs'].forEach(role=>{const id=go[role];if(!id)return;const o=offObj(id);if(!o)return;if(!ocFees[id])ocFees[id]={name:o.name,phone:o.phone||'',email:o.email||'',games:[]};if(!ocFees[id].games.find(x=>x.label===label&&x.day===gi.day))ocFees[id].games.push(gi);});
+  });
+  const GC=25,OC=20;
+  function feeRows(map,rate){return Object.values(map).map(p=>`<tr><td><strong>${p.name}</strong>${p.phone?'<br><small>'+p.phone+'</small>':''}</td><td>${p.email?`<a href="mailto:${p.email}">${p.email}</a>`:''}</td><td style="text-align:center">${p.games.length}</td><td style="text-align:center">$${rate}.00</td><td style="text-align:right;font-weight:700">$${(p.games.length*rate).toFixed(2)}</td></tr>`).join('')||'<tr><td colspan="5" style="color:#aaa;text-align:center">No assignments</td></tr>';}
+  const gcTot=Object.values(gcFees).reduce((s,p)=>s+(p.games.length*GC),0).toFixed(2);
+  const ocTot=Object.values(ocFees).reduce((s,p)=>s+(p.games.length*OC),0).toFixed(2);
+  const grand=(parseFloat(gcTot)+parseFloat(ocTot)).toFixed(2);
+  let sched='';
+  Object.keys(byDay).forEach(day=>{
+    sched+=`<div style="font-weight:bold;color:#f97316;border-bottom:2px solid #f97316;padding:4px 0 2px;margin:12px 0 6px">${day}</div><table width="100%" style="border-collapse:collapse;font-size:11px"><thead><tr style="background:#f3f4f6"><th style="text-align:left;padding:4px 6px;border:1px solid #ddd">Game</th><th style="padding:4px 6px;border:1px solid #ddd">Time</th><th style="padding:4px 6px;border:1px solid #ddd">GC</th><th style="padding:4px 6px;border:1px solid #ddd">SK</th><th style="padding:4px 6px;border:1px solid #ddd">SC</th><th style="padding:4px 6px;border:1px solid #ddd">GS</th></tr></thead><tbody>`;
+    byDay[day].forEach(g=>{const go=g.officials||{};const ml=g.isPO?'\uD83C\uDFC6 '+(g.round||g.id):(tName(tourn,g.home)+' vs '+tName(tourn,g.away));const na='<span style="color:#bbb">&mdash;</span>';sched+=`<tr><td style="padding:4px 6px;border:1px solid #ddd;font-weight:bold">${ml}</td><td style="padding:4px 6px;border:1px solid #ddd">${g.time||''}</td><td style="padding:4px 6px;border:1px solid #ddd">${offName(go.gc)||na}</td><td style="padding:4px 6px;border:1px solid #ddd">${offName(go.sk)||na}</td><td style="padding:4px 6px;border:1px solid #ddd">${offName(go.sc)||na}</td><td style="padding:4px 6px;border:1px solid #ddd">${offName(go.gs)||na}</td></tr>`;});
+    sched+='</tbody></table>';
+  });
+  const body=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Assignments - ${tourn.label||tourn.name}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:24px}h1{font-size:18px;color:#1a0a2e}h2{font-size:13px;color:#6b2fa0;border-bottom:2px solid #6b2fa0;padding-bottom:2px;margin:18px 0 6px}table{width:100%;border-collapse:collapse}th{background:#1a0a2e;color:#fff;padding:5px 8px;text-align:left;font-size:10px}td{padding:5px 8px;border:1px solid #ddd}.grand{background:#6b2fa0;color:#fff;font-weight:bold;font-size:13px;padding:8px 12px;text-align:right;margin-top:6px;border-radius:4px}.btns{text-align:center;margin-top:20px}@media print{.btns{display:none}}</style></head><body><h1>${tourn.label||tourn.name} — Assignments &amp; Fees</h1><p style="color:#888;font-size:10px">${new Date().toLocaleDateString('en-CA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p><h2>Schedule &amp; Assignments</h2>${sched}<h2>&#x1F6A9; Gym Captain Fees — $${GC}.00/game</h2><table><thead><tr><th>Name &amp; Phone</th><th>Email</th><th style="text-align:center">Games</th><th style="text-align:center">Rate</th><th style="text-align:right">Total</th></tr></thead><tbody>${feeRows(gcFees,GC)}</tbody><tfoot><tr style="background:#f0ebff;font-weight:bold"><td colspan="4" style="text-align:right;padding:5px 8px">Subtotal</td><td style="text-align:right;padding:5px 8px">$${gcTot}</td></tr></tfoot></table><h2>&#x1F4CB; Off-Court Official Fees — $${OC}.00/game</h2><table><thead><tr><th>Name &amp; Phone</th><th>Email (e-transfer)</th><th style="text-align:center">Games</th><th style="text-align:center">Rate</th><th style="text-align:right">Total</th></tr></thead><tbody>${feeRows(ocFees,OC)}</tbody><tfoot><tr style="background:#f0ebff;font-weight:bold"><td colspan="4" style="text-align:right;padding:5px 8px">Subtotal</td><td style="text-align:right;padding:5px 8px">$${ocTot}</td></tr></tfoot></table><div class="grand">&#x1F4B0; Grand Total: $${grand}</div><div class="btns"><button onclick="window.print()" style="padding:8px 24px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:bold">&#x1F5A8; Print / Save PDF</button> <button onclick="window.close()" style="padding:8px 16px;background:#f3f4f6;border:1px solid #ccc;border-radius:6px;font-size:13px;cursor:pointer">Close</button></div></body></html>`;
+  try{const blob=new Blob([body],{type:'text/html'});const url=URL.createObjectURL(blob);const w=window.open(url,'_blank');if(!w){window.location.href='data:text/html;charset=utf-8,'+encodeURIComponent(body);}}
+  catch(e){const iframe=document.createElement('iframe');iframe.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';iframe.srcdoc=body;document.body.appendChild(iframe);const cb=document.createElement('button');cb.textContent='\u00d7 Close';cb.style.cssText='position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';cb.onclick=()=>{iframe.remove();cb.remove();};document.body.appendChild(cb);}
+}
 
 function migrateOfficialRoles() {
   let changed = false;
