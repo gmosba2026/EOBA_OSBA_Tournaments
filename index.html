@@ -233,7 +233,8 @@ tr.s5{border-left:3px solid var(--rank5)}
   <div class="banner-right">
     <button class="bbtn" id="refreshBtn">&#x21BB; Refresh</button>
     <button class="bbtn" id="btnManage">&#x2699; Manage</button>
-    <button class="bbtn" id="btnLogin">&#x1F512; Admin Login</button>
+    <button class="bbtn" id="btnLogin" onclick="openLoginModal('admin')">&#x1F4BB; Admin Login</button>
+    <button class="bbtn" id="btnGymLogin" onclick="openLoginModal('gym')" style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.35)">&#x1F6A9; Gym Captain</button>
     <button class="bbtn" id="btnLogout" onclick="logout()" style="display:none">&#x1F513; Logout</button>
   </div>
 </div>
@@ -354,11 +355,11 @@ const DEFAULT_T = {
     { id:'OSBA',  name:'OSBA \u2013 Harvey',               logo:null }
   ],
   games: [
-    { id:1, day:'Sat, Apr 11', time:'10:00 AM', home:'NEP_M', away:'NEP_G' },
-    { id:2, day:'Sat, Apr 11', time:'11:30 AM', home:'ONL',   away:'OSBA'  },
-    { id:3, day:'Sat, Apr 11', time:'1:00 PM',  home:'BEL',   away:'NEP_G' },
-    { id:4, day:'Sat, Apr 11', time:'2:30 PM',  home:'ONL',   away:'NEP_M' },
-    { id:5, day:'Sat, Apr 11', time:'4:00 PM',  home:'BEL',   away:'OSBA'  }
+    { id:1, day:'Sat, Apr 11', time:'10:00 AM', home:'NEP_M', away:'NEP_G', court:'c_sfx', officials:{} },
+    { id:2, day:'Sat, Apr 11', time:'11:30 AM', home:'ONL', away:'OSBA', court:'c_sfx', officials:{} },
+    { id:3, day:'Sat, Apr 11', time:'1:00 PM', home:'BEL', away:'NEP_G', court:'c_sfx', officials:{} },
+    { id:4, day:'Sat, Apr 11', time:'2:30 PM', home:'ONL', away:'NEP_M', court:'c_sfx', officials:{} },
+    { id:5, day:'Sat, Apr 11', time:'4:00 PM', home:'BEL', away:'OSBA', court:'c_sfx', officials:{} }
   ],
   scores:{}, playoffScores:{}, rosters:{}
 };
@@ -703,40 +704,67 @@ function renderStandings(t,st) {
 function renderSchedule(t) {
   const el=document.getElementById('scheduleSection'); if(!el) return;
   if(!t){el.innerHTML='';return;}
+
+  const allGames = [
+    ...(t.games||[]).map(g=>({...g, isPO:false})),
+    ...(t.playoffGames||[]).filter(g=>g.home||g.round).map(g=>({...g, isPO:true}))
+  ];
+
   const grp={};
-  t.games.forEach(g=>{if(!grp[g.day]) grp[g.day]=[];grp[g.day].push(g);});
+  allGames.forEach(g=>{if(!grp[g.day]) grp[g.day]=[]; grp[g.day].push(g);});
+
   let html='';
   Object.keys(grp).forEach(day=>{
-    html+=`<div class="dlabel">${day}</div>`;
+    html+=`<div class="day-label">${day}</div>`;
     grp[day].forEach(g=>{
-      const sc=t.scores[g.id]||{};
-      const done=sc.home!=null&&sc.away!=null;
-      const hN=tName(t,g.home), aN=tName(t,g.away);
-      const hL=tLogo(t,g.home), aL=tLogo(t,g.away);
-      let se='';
-      if(done){
-        se=`<div class="sdone">${sc.home} \u2013 ${sc.away}</div>`;
-        if(isAdmin) se+=`<button class="cbtn" onclick="doClearScore('${t.id}',${g.id})">Clear</button>`;
-      } else if(isAdmin){
-        se=`<div class="sinps"><input type="number" id="h_${t.id}_${g.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="a_${t.id}_${g.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" onclick="doSaveScore('${t.id}',${g.id})">Save</button>`;
-      } else {
-        se='<div class="snone">Not yet played</div>';
-      }
+      const sc  = t.scores[g.id];
+      const done= sc&&sc.home!=null&&sc.away!=null;
+      const court= (t.courts||[]).find(c=>c.id===g.court);
+      const mapUrl= court&&court.address
+        ? 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(court.address)
+        : '';
+      const go  = g.officials||{};
+      const offs= appState.officials||[];
+      const gcName= go.gc ? (offs.find(o=>o.id===go.gc)||{}).name||'' : '';
+
+      /* Game label */
+      const label = g.isPO
+        ? `<span class="playoff-badge">??</span> ${g.round||g.label||'Playoff'}`
+        : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
+
       html+=`<div class="gcrd${done?' done':''}">
-        ${isAdmin?`<button class="btn-rm-game" onclick="confirmRemoveGame('${t.id}',${g.id})" title="Remove game">\u2715</button>`:''}
-        <div><div class="gtime">${g.time} \u00B7 ${t.location}</div><div class="gmatch">${li(hL,20)} ${hN} <span class="gvs">vs</span> ${li(aL,20)} ${aN}</div></div>
-        <div class="sentry">${se}</div>
+        <div class="gcrd-main">
+          <div style="flex:1;min-width:0">
+            <div class="gcrd-teams">${label}</div>
+            <div class="gcrd-meta">
+              <span>⏰ ${g.time}</span>
+              ${court ? `<span style="color:var(--muted)">·</span>
+                <span>?? ${court.name}</span>
+                ${court.address ? `<span style="color:var(--muted)">·</span>
+                <span style="font-size:10px;color:var(--muted)">${court.address}</span>
+                <a href="${mapUrl}" target="_blank" rel="noopener"
+                  style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:2px 6px;border-radius:4px;text-decoration:none;white-space:nowrap;flex-shrink:0">
+                  ?? Map</a>` : ''}` : ''}
+            </div>
+            ${gcName ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">?? GC: ${gcName}</div>` : ''}
+          </div>
+          <div class="gcrd-score">
+            ${isAdmin&&!done ? `<div style="display:flex;gap:6px;align-items:center">
+              <input class="sinp" id="sh_${t.id}_${g.id}" type="number" min="0" placeholder="H"
+                style="width:48px" value="${sc&&sc.home!=null?sc.home:''}">
+              <span style="color:var(--muted)">-</span>
+              <input class="sinp" id="sa_${t.id}_${g.id}" type="number" min="0" placeholder="A"
+                style="width:48px" value="${sc&&sc.away!=null?sc.away:''}">
+              <button class="sbtn" onclick="doSaveScore('${t.id}',${g.id})">Save</button>
+            </div>` :
+            done ? `<div class="final-score">${sc.home}<span style="color:var(--muted);margin:0 4px">-</span>${sc.away}</div>` :
+            `<div style="font-size:11px;color:var(--muted)">Upcoming</div>`}
+          </div>
+        </div>
       </div>`;
     });
   });
-  if(isAdmin) html+=`<button class="btn-add-game" onclick="openAddGame('${t.id}')">+ Add Game</button>`;
-  el.innerHTML=html;
-  t.games.forEach(g=>{
-    const hi=document.getElementById(`h_${t.id}_${g.id}`);
-    const ai=document.getElementById(`a_${t.id}_${g.id}`);
-    if(hi) hi.addEventListener('keydown',e=>{if(e.key==='Enter')doSaveScore(t.id,g.id);});
-    if(ai) ai.addEventListener('keydown',e=>{if(e.key==='Enter')doSaveScore(t.id,g.id);});
-  });
+  el.innerHTML = html||'<div style="color:var(--muted);text-align:center;padding:20px">No games scheduled</div>';
 }
 
 function renderBracket(t,st) {
@@ -1172,14 +1200,18 @@ function updateBanner() {
     if(mg) mg.style.display=(loginRole==='admin')?'':'none';
     if(bA) bA.style.display='none';
     if(bG) bG.style.display='none';
+    const gcBtn2=document.getElementById('btnGymLogin');
+    if(gcBtn2) gcBtn2.style.display='none';
   } else {
     bn.className='view-mode';
     lb.textContent='View Only Mode';
     if(lI) lI.style.display='';
     if(lO) lO.style.display='none';
     if(mg) mg.style.display='none';
+    const gcBtn=document.getElementById('btnGymLogin');
     if(bA) bA.style.display='';
     if(bG) bG.style.display='';
+    if(gcBtn) gcBtn.style.display='';
   }
 }
 
@@ -1197,7 +1229,7 @@ function render(){
 }
 
 // ── EVENT LISTENERS ──
-document.getElementById('btnLogin').addEventListener('click', openPinModal);
+/* btnLogin uses onclick attribute directly */
 document.getElementById('btnLogout').addEventListener('click', logout);
 document.getElementById('btnManage').addEventListener('click', ()=>openAdminPanel('tournaments'));
 document.getElementById('refreshBtn').addEventListener('click', manualRefresh);
@@ -1221,12 +1253,12 @@ const DEFAULT_T2 = {
     { id:'NEP',  name:'Nepean',                logo:null }
   ],
   games: [
-    { id:1, day:'Fri, Apr 24', time:'6:15 PM',  home:'OSS',  away:'NEP',  court:'Osgoode THS'   },
-    { id:2, day:'Fri, Apr 24', time:'8:15 PM',  home:'PRBC', away:'OSBA', court:'Osgoode THS'   },
-    { id:3, day:'Sat, Apr 25', time:'12:15 PM', home:'OSS',  away:'OSBA', court:'Mino Mikan ES'  },
-    { id:4, day:'Sat, Apr 25', time:'12:15 PM', home:'NEP',  away:'PRBC', court:'Osgoode THS'   },
-    { id:5, day:'Sat, Apr 25', time:'3:30 PM',  home:'OSBA', away:'NEP',  court:'Mino Mikan ES'  },
-    { id:6, day:'Sat, Apr 25', time:'3:30 PM',  home:'OSS',  away:'PRBC', court:'Osgoode THS'   }
+    { id:'g1_u17', day:'Fri, Apr 24', time:'6:15 PM',  home:'OSS',  away:'NEP',  court:'c_ot', officials:{} },
+    { id:'g2_u17', day:'Fri, Apr 24', time:'8:15 PM',  home:'PRBC', away:'OSBA', court:'c_ot', officials:{} },
+    { id:'g3_u17', day:'Sat, Apr 25', time:'12:15 PM', home:'OSS',  away:'OSBA', court:'c_mm', officials:{} },
+    { id:'g4_u17', day:'Sat, Apr 25', time:'12:15 PM', home:'NEP',  away:'PRBC', court:'c_ot', officials:{} },
+    { id:'g5_u17', day:'Sat, Apr 25', time:'3:30 PM',  home:'OSBA', away:'NEP',  court:'c_mm', officials:{} },
+    { id:'g6_u17', day:'Sat, Apr 25', time:'3:30 PM',  home:'OSS',  away:'PRBC', court:'c_ot', officials:{} }
   ],
   courts: [
     { id:'c_ot', name:'Osgoode Township HS', address:'2800 8th Line Rd, Metcalfe ON K0A 2P0' },
