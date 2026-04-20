@@ -352,7 +352,7 @@ tr.s5{border-left:3px solid var(--rank5)}
 
 // ── CONSTANTS ──
 const PIN     = '128976';
-const BIN_ID  = '69d93d4caaba882197e5c079';
+let BIN_ID = localStorage.getItem('eoba_bin_id') || '69d93d4caaba882197e5c079';
 const BIN_KEY  = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
 
 
@@ -508,19 +508,24 @@ async function syncToCloud() {
 }
 async function loadFromCloud() {
   try {
-    const res  = await fetch(BIN_URL + '/latest', {
+    /* Try to fetch from current bin */
+    const res = await fetch(BIN_URL + BIN_ID + '/latest', {
       headers:{'X-Master-Key':BIN_KEY},
-      signal: AbortSignal.timeout(10000)  /* 10 second timeout */
+      signal: AbortSignal.timeout(10000)
     });
+
+    /* If bin doesn't exist (404) or forbidden (403), create a new one */
+    if (res.status === 404 || res.status === 403) {
+      console.warn('[EOBA] Bin not found ('+res.status+'). Auto-creating new bin...');
+      await createNewBin();
+      return;
+    }
+
     const data = await res.json();
     const rec  = data.record || {};
     if (rec.version === 2) {
       if (rec.tournaments) {
-        /* Merge strategy: take cloud tournaments but preserve:
-           1. locally-saved officials (assignment persistence)
-           2. locally-saved team logos (analytics sync strips logos to save space,
-              so the cloud may not have the latest uploaded logos) */
-        const localTourneys = appState.tournaments; // pre-cloud (from localStorage)
+        const localTourneys = appState.tournaments;
         appState.tournaments = rec.tournaments;
 
         /* Restore team logos from localStorage if cloud version is missing them */
@@ -534,74 +539,56 @@ async function loadFromCloud() {
             }
           });
         });
-                /* ── Game officials merge — LOCAL IS ALWAYS AUTHORITATIVE ────────────────
-           Assignments are entered by one admin on one device. Local localStorage
-           is the source of truth. We ALWAYS restore local game officials after
-           replacing appState.tournaments from cloud. This means:
-           - Clearing an official to "Unassigned" persists (nulls are restored)
-           - Changing an official persists (new ID is restored)
-           - A fresh device (no localStorage) gets cloud assignments on first load
-           ─────────────────────────────────────────────────────────────────── */
+
+        /* Game officials — local is always authoritative */
         const localSavedAt = appState._savedAt || 0;
         const hasLocalData = localSavedAt > 0;
-
         appState.tournaments.forEach(ct => {
           const lt = localTourneys.find(x => x.id === ct.id);
           if (!lt) return;
-
           (ct.games||[]).forEach(cg => {
             const lg = (lt.games||[]).find(x => x.id === cg.id);
             if (!lg) return;
             if (hasLocalData) {
-              /* Local exists — always use local officials (handles nulls correctly) */
-              cg.officials = lg.officials
-                ? JSON.parse(JSON.stringify(lg.officials))
-                : {};
+              cg.officials = lg.officials ? JSON.parse(JSON.stringify(lg.officials)) : {};
             } else if (!cg.officials) {
-              /* No local data at all (fresh device) — use cloud officials */
               cg.officials = {};
             }
           });
-
           (ct.playoffGames||[]).forEach(cpg => {
             const lpg = (lt.playoffGames||[]).find(x => x.id === cpg.id);
             if (!lpg) return;
             if (hasLocalData) {
-              cpg.officials = lpg.officials
-                ? JSON.parse(JSON.stringify(lpg.officials))
-                : {};
+              cpg.officials = lpg.officials ? JSON.parse(JSON.stringify(lpg.officials)) : {};
             } else if (!cpg.officials) {
               cpg.officials = {};
             }
           });
         });
       }
-      /* activeTournamentId is a per-device local preference — don't overwrite
-         the user's current selection with whatever another device last saved */
-      // if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
-      // Only set it on first load when we have no selection yet
+
       if (!appState.activeTournamentId && rec.activeTournamentId)
         appState.activeTournamentId = rec.activeTournamentId;
-      /* Only update officials from cloud if cloud has data.
-         If cloud has empty array [], preserve any locally stored officials
-         to avoid wiping data that hasn't synced yet. */
+
+      /* Only update officials from cloud if cloud actually has officials */
       if (rec.officials && rec.officials.length > 0) {
         appState.officials = rec.officials;
       } else if (!appState.officials || appState.officials.length === 0) {
         appState.officials = rec.officials || [];
       }
-      /* else: cloud is empty but local has officials — keep local */
-      if (rec.gymCaptainPin)       appState.gymCaptainPin      = rec.gymCaptainPin;
-      if (rec.analytics) appState.analytics = rec.analytics;
-      /* Re-apply seed fields that cloud data may be missing */
+
+      if (rec.gymCaptainPin)  appState.gymCaptainPin  = rec.gymCaptainPin;
+      if (rec.analytics)      appState.analytics      = rec.analytics;
+
+      /* Re-apply seed fields */
       [DEFAULT_T, DEFAULT_T2].forEach(seed=>{
         const t=appState.tournaments.find(x=>x.id===seed.id);
         if(!t) return;
         if(!t.label)    t.label    = seed.label;
         if(!t.headerBg) t.headerBg = seed.headerBg;
         if(!t.courts||!t.courts.length) t.courts = seed.courts;
-        if(!t.playoffGames||!t.playoffGames.length) t.playoffGames = JSON.parse(JSON.stringify(seed.playoffGames||[]));
-        /* Merge team logos/names from seed for built-in teams */
+        if(!t.playoffGames||!t.playoffGames.length)
+          t.playoffGames = JSON.parse(JSON.stringify(seed.playoffGames||[]));
         seed.teams.forEach(st=>{
           const tt=t.teams.find(x=>x.id===st.id);
           if(tt){
@@ -610,28 +597,78 @@ async function loadFromCloud() {
           }
         });
       });
+
     } else if (rec.scores !== undefined || rec.playoffScores !== undefined) {
-      // Migrate v1 scores to default tournament
       const t = appState.tournaments.find(t => t.id === 'eoba_u13_2026');
       if (t) {
         if (rec.scores)        t.scores        = rec.scores;
         if (rec.playoffScores) t.playoffScores = rec.playoffScores;
       }
     }
-    const _migChanged = migrateOfficialRoles(); /* normalize any old roles from cloud */
+
+    const _migChanged = migrateOfficialRoles();
     saveLocal();
-    if(_migChanged) {
-      /* Roles were stale in cloud — push the corrected data back up now */
-      syncToCloud();
-    }
+    if(_migChanged) syncToCloud();
+
   } catch(e) {
-    console.error('[EOBA] loadFromCloud failed:', e);
-    /* Keep whatever is in localStorage — do not wipe */
-    /* Still run migration on local data in case officials need role normalization */
+    console.error('[EOBA] loadFromCloud failed:', e.message || e);
+    /* Keep local data — do not wipe anything */
     migrateOfficialRoles();
     saveLocal();
+    /* Show banner if admin is logged in */
+    if (isAdmin) showToast('⚠ Cloud sync unavailable — working from local data', true);
   }
 }
+
+async function createNewBin() {
+  try {
+    /* Create a fresh JSONBin bin with current app state */
+    const payload = {
+      version: 2,
+      _savedAt: Date.now(),
+      activeTournamentId: null,
+      officials: appState.officials || [],
+      gymCaptainPin: appState.gymCaptainPin || '',
+      analytics: { days: {} },
+      tournaments: (appState.tournaments||[]).map(t=>{
+        const s={...t}; delete s.headerBg;
+        return s;
+      })
+    };
+    const res = await fetch(BIN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': BIN_KEY,
+        'X-Bin-Name': 'EOBA_Tournaments',
+        'X-Bin-Private': 'true'
+      },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    const newId = data?.metadata?.id;
+    if (newId) {
+      BIN_ID = newId;
+      localStorage.setItem('eoba_bin_id', newId);
+      saveLocal();
+      console.log('[EOBA] New bin created:', newId);
+      showToast('✓ New database created: ' + newId);
+      /* Show the new ID to admin so they can update the code */
+      if (isAdmin) {
+        setTimeout(() => alert(
+          'NEW DATABASE BIN ID: ' + newId +
+          '\n\nSave this! Update BIN_ID in the source code to: ' + newId +
+          '\n\nYour officials data will need to be re-entered.'
+        ), 500);
+      }
+    } else {
+      console.error('[EOBA] Could not create bin:', data);
+    }
+  } catch(e) {
+    console.error('[EOBA] createNewBin failed:', e.message || e);
+  }
+}
+
 async function manualRefresh() {
   const btn = document.getElementById('refreshBtn');
   if (btn) btn.textContent = '\u21BB Syncing\u2026';
@@ -1416,6 +1453,17 @@ function confirmRemoveGame(tId,gId) {
 }
 
 // ── AUTH ──
+/* openLoginModal called by admin/gym buttons in the header */
+function openLoginModal(role) {
+  /* Store which button was pressed so UI can show context */
+  document.getElementById('pinModal').dataset.loginRole = role || 'admin';
+  const title = document.getElementById('pinModalTitle');
+  if (title) {
+    title.textContent = role === 'gym' ? '🚩 Gym Captain Login' : '💻 Admin Login';
+  }
+  openPinModal();
+}
+
 function openPinModal() {
   document.getElementById('pinInput').value=''; document.getElementById('pinError').textContent='';
   document.getElementById('pinModal').className='modal-overlay open';
