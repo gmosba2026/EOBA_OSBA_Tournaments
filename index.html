@@ -103,6 +103,14 @@ tr.s5{border-left:3px solid var(--rank5)}
 .gcrd.playoff{background:linear-gradient(135deg,rgba(249,115,22,.10),rgba(245,197,24,.08));border-left:4px solid #f5c518}
 .gcrd.playoff.done{border-left-color:#22c55e}
 .playoff-badge{font-size:15px;margin-right:4px}
+.final-score{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:26px;color:var(--green);letter-spacing:1px;line-height:1;white-space:nowrap}
+.sinp{background:var(--bg);border:1.5px solid var(--border);border-radius:5px;color:var(--text);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;text-align:center;padding:4px 2px;-moz-appearance:textfield}
+.sinp::-webkit-inner-spin-button,.sinp::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.sinp:focus{outline:none;border-color:var(--orange)}
+.gcrd-main{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;flex-wrap:wrap}
+.gcrd-teams{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;margin-bottom:4px}
+.gcrd-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.gcrd-score{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .gtime{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
 .gmatch{display:flex;align-items:center;gap:7px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;flex-wrap:wrap}
 .gmatch img{width:20px;height:20px;object-fit:contain}
@@ -381,15 +389,72 @@ function loadLocal() {
     if (!appState.analytics) appState.analytics = {days:{}};
   } catch(e) {}
 }
+/* ── State sync to /api/state ───────────────────────────────── */
+let _authPin    = null;   // captured at successful login (memory only)
+let _stateVer   = 0;      // last known server version
+let _syncTimer  = null;   // debounce handle
+let _syncFlight = false;  // true while a PUT is in flight
+let _syncDirty  = false;  // local change happened while flight in progress
+
+async function _doPut() {
+  if (!_authPin) return;              // viewers don't write
+  if (_syncFlight) { _syncDirty = true; return; }
+  _syncFlight = true;
+  try {
+    const res = await fetch('/api/state', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Pin':  _authPin
+      },
+      body: JSON.stringify({ appState, expectedVersion: _stateVer })
+    });
+    if (res.status === 409) {
+      /* Someone else saved first — pull, re-apply, retry once */
+      const fresh = await (await fetch('/api/state', { cache: 'no-store' })).json();
+      _stateVer = fresh.version;
+      _syncFlight = false;
+      return _doPut();
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    _stateVer = j.version;
+    updateSyncStatus();
+  } catch (e) {
+    showToast('Cloud save failed — saved locally', true);
+  } finally {
+    _syncFlight = false;
+    if (_syncDirty) { _syncDirty = false; _doPut(); }
+  }
+}
+
 async function syncToCloud() {
   saveLocal();
   updateSyncStatus();
-  showToast('\u2713 Saved');
+  if (!_authPin) return;              // only authed users push
+  if (_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(_doPut, 500);
 }
 
 async function loadFromCloud() {
-  migrateOfficialRoles();
-  saveLocal();
+  try {
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    if (j && j.appState && Array.isArray(j.appState.tournaments)) {
+      appState  = j.appState;
+      _stateVer = j.version || 0;
+      if (!appState.officials)      appState.officials = [];
+      if (!appState.soloTournament) appState.soloTournament = null;
+      if (!appState.analytics)      appState.analytics = { days: {} };
+    }
+    migrateOfficialRoles();
+    saveLocal();
+  } catch (e) {
+    /* Network hiccup — keep showing last-known state */
+    migrateOfficialRoles();
+    saveLocal();
+  }
 }
 
 async function manualRefresh() {
@@ -797,6 +862,7 @@ function renderSchedule(t) {
           </div>
           <div class="gcrd-score">
             ${isAdmin && (!g.isPO || (g.home && g.away)) ? `<div style="display:flex;gap:6px;align-items:center">
+              ${done?`<span class="final-score" style="font-size:22px;margin-right:6px">${sc.home}<span style="color:var(--muted);font-weight:400;margin:0 3px">-</span>${sc.away}</span>`:''}
               <input class="sinp" id="${hInputId}" type="number" min="0" placeholder="H"
                 style="width:48px;${done?'border-color:var(--green)':''}"
                 value="${sc&&sc.home!=null?sc.home:''}">
@@ -806,7 +872,7 @@ function renderSchedule(t) {
                 value="${sc&&sc.away!=null?sc.away:''}">
               <button class="sbtn" onclick="${saveFn}">${done?'\u270F Edit':'Save'}</button>
             </div>` :
-            done ? `<div class="final-score">${sc.home}<span style="color:var(--muted);margin:0 4px">-</span>${sc.away}</div>` :
+            done ? `<div class="final-score">${sc.home}<span style="color:var(--muted);margin:0 4px;font-weight:400">-</span>${sc.away}</div>` :
             `<div style="font-size:11px;color:var(--muted)">Upcoming</div>`}
           </div>
         </div>
@@ -1292,12 +1358,12 @@ function tryLogin() {
   const gcPin = (activeTourney&&activeTourney.gymCaptainPin)
     ? activeTourney.gymCaptainPin : (appState.gymCaptainPin||'0000');
   if(v===PIN){
-    isAdmin=true; loginRole='admin';
+    isAdmin=true; loginRole='admin'; _authPin=v;
     saveLocal(); closePinModal(); render();
     openAdminPanel('tournaments');
     showToast('\u26A1 Admin unlocked');
   } else if(v===gcPin){
-    isAdmin=true; loginRole='gym';
+    isAdmin=true; loginRole='gym'; _authPin=v;
     saveLocal(); closePinModal(); render();
     openAdminPanel('scores');
     showToast('\uD83D\uDEA9 Gym Captain unlocked');
@@ -1307,7 +1373,7 @@ function tryLogin() {
     setTimeout(()=>inp.className='pin-input',400); inp.value=''; inp.focus();
   }
 }
-function logout(){isAdmin=false;loginRole=null;localStorage.removeItem('eoba_login_role');saveLocal();closeAdminPanel();render();showToast('Logged out');}
+function logout(){isAdmin=false;loginRole=null;_authPin=null;localStorage.removeItem('eoba_login_role');saveLocal();closeAdminPanel();render();showToast('Logged out');}
 
 function updateBanner() {
   const bn=document.getElementById('modeBanner'), lb=document.getElementById('modeLabel');
