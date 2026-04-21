@@ -19,9 +19,10 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font
 
 /* ── BANNER ── */
 #modeBanner{
-  position:sticky;top:0;z-index:200;padding:8px 16px;
+  position:-webkit-sticky;position:sticky;top:0;z-index:500;padding:8px 16px;
   display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
   font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:1px;text-transform:uppercase;
+  box-shadow:0 2px 6px rgba(0,0,0,.35);
 }
 #modeBanner.view-mode{background:#0f1a2e;color:var(--muted);border-bottom:2px solid var(--border)}
 #modeBanner.admin-mode{background:#1f1200;color:var(--orange);border-bottom:2px solid var(--orange)}
@@ -1493,6 +1494,48 @@ function backfillU17Coaches() {
   return changed;
 }
 
+// ── U13 OFFICIALS BACKFILL (Sat Apr 11 round-robin + Sun Apr 12 playoffs) ──
+const U13_OFFICIALS_DEFAULTS = {
+  1:   { gc:'o_gc_rich',    sk:'o_oc_antoni',   sc:'o_oc_sammy',    gs:null },
+  2:   { gc:'o_gc_jack',    sk:'o_oc_mitchell', sc:'o_oc_sammy',    gs:null },
+  3:   { gc:'o_gc_jack',    sk:'o_oc_carson',   sc:'o_oc_sammy',    gs:null },
+  4:   { gc:'o_gc_jack',    sk:'o_oc_carson',   sc:'o_oc_kaity',    gs:null },
+  5:   { gc:'o_gc_jack',    sk:'o_oc_mitchell', sc:'o_oc_samatar',  gs:null },
+  PI:  { gc:'o_gc_allison', sk:'o_oc_kaity',    sc:'o_oc_sammy',    gs:null },
+  SF1: { gc:'o_gc_allison', sk:'o_oc_samatar',  sc:'o_oc_sammy',    gs:null },
+  SF2: { gc:'o_gc_jack',    sk:'o_oc_samatar',  sc:'o_oc_sammy',    gs:null },
+  BRZ: { gc:'o_gc_jack',    sk:'o_oc_mitchell', sc:'o_oc_raheem',   gs:null },
+  GLD: { gc:'o_gc_jack',    sk:'o_oc_mitchell', sc:'o_oc_raheem',   gs:null }
+};
+function backfillU13Officials() {
+  const t = appState.tournaments.find(x => x.id === 'eoba_u13_2026');
+  if (!t) return false;
+  let changed = false;
+  const apply = (game) => {
+    const def = U13_OFFICIALS_DEFAULTS[game.id];
+    if (!def) return;
+    const cur = game.officials || {};
+    const isEmpty = !cur.gc && !cur.sk && !cur.sc && !cur.gs;
+    if (isEmpty) {
+      game.officials = { ...def };
+      changed = true;
+    }
+  };
+  (t.games || []).forEach(apply);
+  /* Synthesize playoff game stubs in t.playoffGames if not present, so the
+     officials data has somewhere to live. Scores still live in t.playoffScores. */
+  if (!Array.isArray(t.playoffGames)) t.playoffGames = [];
+  ['PI','SF1','SF2','BRZ','GLD'].forEach(pid => {
+    let pg = t.playoffGames.find(g => g.id === pid);
+    if (!pg) {
+      pg = { id: pid, officials: {} };
+      t.playoffGames.push(pg);
+    }
+    apply(pg);
+  });
+  return changed;
+}
+
 // ── INIT ──
 async function init(){
   loadLocal();
@@ -1522,6 +1565,9 @@ async function init(){
 
   /* One-time backfill of U17 coach info (noop once populated) */
   if (backfillU17Coaches()) saveLocal();
+
+  /* One-time backfill of U13 officials assignments (noop once populated) */
+  if (backfillU13Officials()) saveLocal();
 
   render();
   /* If already logged in from previous session, open admin panel automatically */
@@ -1903,7 +1949,7 @@ function submitRenameTeam(tId,tmId) {
   const n=document.getElementById('f_rn')?.value.trim();
   if(!n) return showToast('Enter a name',true);
   tm.name=n;
-  syncToCloud(); closeModal(); renderAdminPanel(); showToast('Team renamed \u2713');
+  syncToCloud(); closeModal(); render(); renderAdminPanel(); showToast('Team renamed \u2713');
 }
 
 // ── PRINTOUT ──────────────────────────────────────────────────────────────────
