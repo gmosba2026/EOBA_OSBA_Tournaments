@@ -1616,7 +1616,10 @@ function apAssignments(t) {
         style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px">
         ${tournList.map(tx=>`<option value="${tx.id}"${tx.id===asgnTournId?' selected':''}>${tx.label||tx.name}</option>`).join('')}
       </select></div>
-    <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()" style="font-size:11px;font-weight:700;white-space:nowrap">&#x1F4CB; Print / Export</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()" style="font-size:11px;font-weight:700;white-space:nowrap">&#x1F4CB; Print / Export</button>
+      <button class="ap-btn ap-btn-primary" onclick="printFeeSummary()" style="font-size:11px;font-weight:700;white-space:nowrap;background:#4ade80;color:#0a0a0a">&#x1F4B0; Fee Summary</button>
+    </div>
   </div>`;
   const allGames=[...(tourn.games||[]).map(g=>({...g,isPO:false})),...(tourn.playoffGames||[]).map(g=>({...g,isPO:true}))];
   if(!allGames.length){h+='<div class="ap-empty">No games scheduled.</div>';return h;}
@@ -1645,9 +1648,12 @@ function apAssignments(t) {
       </div>`;
     });
   });
-  h+=`<div style="margin-top:18px;padding-top:14px;border-top:2px solid var(--border);text-align:center">
+  h+=`<div style="margin-top:18px;padding-top:14px;border-top:2px solid var(--border);text-align:center;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
     <button class="ap-btn ap-btn-primary" onclick="printAllAssignments()" style="font-size:13px;font-weight:700;padding:10px 24px">
-      &#x1F4B0; Print Assignments &amp; Fee Summary</button></div>`;
+      &#x1F4CB; Print Assignments</button>
+    <button class="ap-btn ap-btn-primary" onclick="printFeeSummary()" style="font-size:13px;font-weight:700;padding:10px 24px;background:#4ade80;color:#0a0a0a">
+      &#x1F4B0; Fee Summary (EOBA Reimbursement)</button>
+  </div>`;
   return h;
 }
 
@@ -1808,6 +1814,103 @@ function printAllAssignments(){
   <div class="btns"><button onclick="window.print()" style="padding:8px 24px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold">&#x1F5A8; Print</button>
   <button onclick="window.close()" style="margin-left:8px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;cursor:pointer">Close</button></div>
   </body></html>`;
+  try{const blob=new Blob([body],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');}
+  catch(e){const i=document.createElement('iframe');i.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';i.srcdoc=body;document.body.appendChild(i);const b=document.createElement('button');b.textContent='\u00d7 Close';b.style.cssText='position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';b.onclick=()=>{i.remove();b.remove();};document.body.appendChild(b);}
+}
+
+// ── FEE SUMMARY (EOBA reimbursement form) ─────────────────────────────────────
+function printFeeSummary(){
+  const tournList=appState.tournaments||[];
+  if(!asgnTournId&&tournList.length) asgnTournId=tournList[0].id;
+  const tourn=tournList.find(x=>x.id===asgnTournId)||tournList[0];
+  if(!tourn){alert('No tournament selected.');return;}
+  const rr=(tourn.games||[]).length;
+  const po=(tourn.playoffGames||[]).length;
+  const totalGames=rr+po;
+  const ageGroup=[tourn.division,tourn.stream,tourn.gender].filter(Boolean).join(' ');
+  const isHS=/U1[789]/i.test(tourn.division||'');
+  const assocName='Ottawa South Basketball Association';
+  const date=tourn.dates||new Date().toLocaleDateString();
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const body=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Fee Summary - ${esc(tourn.label||tourn.name)}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Arial,sans-serif;font-size:13px;margin:24px;background:#eaf2ff;color:#111}
+  .wrap{max-width:820px;margin:0 auto;background:#eaf2ff;padding:18px;border:1px solid #c7d7f0}
+  h1{font-size:18px;margin:0 0 14px;color:#1a0a2e}
+  table.form{width:100%;border-collapse:collapse;background:#eaf2ff}
+  table.form td{border:1px solid #c7d7f0;padding:6px 8px;vertical-align:middle;font-size:12px}
+  td.lbl{background:#e8eefa;font-weight:700;width:190px}
+  td.hdr{background:#d9e85a;font-weight:700}
+  td.grand{background:#4ade80;font-weight:700}
+  td.note{font-style:italic;color:#444;background:#eaf2ff}
+  input[type=text],input[type=number],input[type=email]{width:100%;padding:4px 6px;border:1px solid #b5c6de;border-radius:3px;font-size:12px;background:#fff;font-family:inherit}
+  input[readonly]{background:#f3f6fc;color:#333}
+  .total-cell{text-align:right;font-weight:700;font-family:monospace}
+  .btns{text-align:center;margin-top:20px}
+  .btns button{padding:9px 22px;margin:0 4px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold}
+  .btn-print{background:#6b2fa0;color:#fff}
+  .btn-close{background:#ccc;color:#111}
+  @media print{body{background:#fff;margin:0}.wrap{background:#fff;border:none;padding:0}.btns{display:none}input{border:none;background:transparent!important;color:#000!important;padding:0}td.note{background:#fff}}
+</style></head><body>
+<div class="wrap">
+<h1>EOBA Reimbursement &mdash; Fee Summary</h1>
+<table class="form">
+  <tr><td class="lbl">Association Name:</td><td colspan="3"><input type="text" id="f_assoc" value="${esc(assocName)}"></td></tr>
+  <tr><td class="lbl">Age Group:</td><td colspan="3"><input type="text" id="f_age" value="${esc(ageGroup)}"></td></tr>
+  <tr><td class="lbl">Date:</td><td colspan="3"><input type="text" id="f_date" value="${esc(date)}"></td></tr>
+  <tr><td class="lbl">Email to send Funds:</td><td colspan="3"><input type="email" id="f_email" placeholder="finance@association.com"></td></tr>
+
+  <tr><td class="hdr">Gym Cost</td><td colspan="2"><input type="number" id="f_gym" min="0" step="0.01" value="0" oninput="recalc()"></td>
+    <td class="note">*Max $600 for Ottawa teams</td></tr>
+  <tr><td class="hdr">Ref Costs</td><td colspan="2"><input type="number" id="f_ref" min="0" step="0.01" value="0" oninput="recalc()"></td>
+    <td class="note">*Non-OVBABO teams only</td></tr>
+
+  <tr><td class="hdr" rowspan="2">Table Official 1<br><span style="font-weight:normal;font-size:11px">x $20 per game</span></td>
+    <td class="lbl">Number of games</td><td><input type="number" id="f_t1n" min="0" value="${totalGames}" oninput="recalc()"></td>
+    <td class="note"></td></tr>
+  <tr><td class="lbl">Total</td><td class="total-cell" id="f_t1t">$0.00</td><td></td></tr>
+
+  <tr><td class="hdr" rowspan="2">Table Official 2<br><span style="font-weight:normal;font-size:11px">x $20 per game</span></td>
+    <td class="lbl">Number of games</td><td><input type="number" id="f_t2n" min="0" value="${totalGames}" oninput="recalc()"></td>
+    <td class="note"></td></tr>
+  <tr><td class="lbl">Total</td><td class="total-cell" id="f_t2t">$0.00</td><td></td></tr>
+
+  <tr><td class="hdr" rowspan="2">Table Official 3<br><span style="font-weight:normal;font-size:11px">x $20 per game</span></td>
+    <td class="lbl">Number of games</td><td><input type="number" id="f_t3n" min="0" value="${isHS?totalGames:0}" oninput="recalc()"></td>
+    <td class="note">*HS age groups only</td></tr>
+  <tr><td class="lbl">Total</td><td class="total-cell" id="f_t3t">$0.00</td><td></td></tr>
+
+  <tr><td class="hdr" rowspan="2">Gym Captain<br><span style="font-weight:normal;font-size:11px">x $25 per game</span></td>
+    <td class="lbl">Number of games</td><td><input type="number" id="f_gcn" min="0" value="${totalGames}" oninput="recalc()"></td>
+    <td class="note"></td></tr>
+  <tr><td class="lbl">Total</td><td class="total-cell" id="f_gct">$0.00</td><td></td></tr>
+
+  <tr><td class="grand">Grand Total</td><td colspan="2" class="total-cell" id="f_grand" style="background:#4ade80;font-size:15px">$0.00</td>
+    <td class="note">*Gym cost + Table Officials + Gym Captain<br>**Non-OVBABO teams include Ref costs</td></tr>
+</table>
+<p style="margin-top:14px;font-weight:700">***Please email completed form to : <span style="color:#6b2fa0">eobabasketball@gmail.com</span></p>
+<div class="btns">
+  <button class="btn-print" onclick="window.print()">&#x1F5A8; Print</button>
+  <button class="btn-close" onclick="window.close()">Close</button>
+</div>
+</div>
+<script>
+function num(id){return parseFloat(document.getElementById(id).value)||0;}
+function fmt(n){return '$'+n.toFixed(2);}
+function recalc(){
+  var gym=num('f_gym'), ref=num('f_ref');
+  var t1=num('f_t1n')*20, t2=num('f_t2n')*20, t3=num('f_t3n')*20, gc=num('f_gcn')*25;
+  document.getElementById('f_t1t').textContent=fmt(t1);
+  document.getElementById('f_t2t').textContent=fmt(t2);
+  document.getElementById('f_t3t').textContent=fmt(t3);
+  document.getElementById('f_gct').textContent=fmt(gc);
+  document.getElementById('f_grand').textContent=fmt(gym+ref+t1+t2+t3+gc);
+}
+recalc();
+</script>
+</body></html>`;
   try{const blob=new Blob([body],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');}
   catch(e){const i=document.createElement('iframe');i.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';i.srcdoc=body;document.body.appendChild(i);const b=document.createElement('button');b.textContent='\u00d7 Close';b.style.cssText='position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';b.onclick=()=>{i.remove();b.remove();};document.body.appendChild(b);}
 }
