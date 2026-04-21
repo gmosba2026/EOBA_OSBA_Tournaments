@@ -671,6 +671,20 @@ function slot(t,desc,st,defs) {
 }
 function pWin(t,id,st,defs){const r=pRes(t,id);if(!r)return{id:null,name:'Winner of '+id,tbd:true};const i=pInfo(t,id,st,defs);if(!i)return{id:null,name:'Winner of '+id,tbd:true};return r.h>r.a?i.homeTeam:i.awayTeam;}
 function pLos(t,id,st,defs){const r=pRes(t,id);if(!r)return{id:null,name:'Loser of '+id,tbd:true};const i=pInfo(t,id,st,defs);if(!i)return{id:null,name:'Loser of '+id,tbd:true};return r.h<r.a?i.homeTeam:i.awayTeam;}
+function getMedalWinners(t){
+  const empty={gold:null,silver:null,bronze:null};
+  if(!t) return empty;
+  const st=(typeof calcStandings==='function')?calcStandings(t):[];
+  const defs=playoffDefs(t.numTeams||t.teams.length);
+  if(!defs||!defs.length) return empty;
+  const gldR=pRes(t,'GLD'), brzR=pRes(t,'BRZ');
+  const gldI=gldR?pInfo(t,'GLD',st,defs):null;
+  const brzI=brzR?pInfo(t,'BRZ',st,defs):null;
+  const gold   = gldR&&gldI ? (gldR.h>gldR.a?gldI.homeTeam.id:gldI.awayTeam.id) : null;
+  const silver = gldR&&gldI ? (gldR.h<gldR.a?gldI.homeTeam.id:gldI.awayTeam.id) : null;
+  const bronze = brzR&&brzI ? (brzR.h>brzR.a?brzI.homeTeam.id:brzI.awayTeam.id) : null;
+  return {gold,silver,bronze};
+}
 
 // ── RENDER ──
 function li(src,sz,cls){ return src?`<img src="${src}" alt="" width="${sz}" height="${sz}" style="object-fit:contain;flex-shrink:0" class="${cls||''}">`:'' }
