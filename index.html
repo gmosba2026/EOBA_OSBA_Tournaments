@@ -100,6 +100,9 @@ tr.s5{border-left:3px solid var(--rank5)}
 .dlabel{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--orange);padding:5px 0 2px;border-bottom:1px solid var(--border)}
 .gcrd{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;position:relative}
 .gcrd.done{border-color:rgba(34,197,94,.3)}
+.gcrd.playoff{background:linear-gradient(135deg,rgba(249,115,22,.10),rgba(245,197,24,.08));border-left:4px solid #f5c518}
+.gcrd.playoff.done{border-left-color:#22c55e}
+.playoff-badge{font-size:15px;margin-right:4px}
 .gtime{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
 .gmatch{display:flex;align-items:center;gap:7px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;flex-wrap:wrap}
 .gmatch img{width:20px;height:20px;object-fit:contain}
@@ -608,27 +611,27 @@ function playoffDefs(n) {
     {id:'PI',  round:'Play-In',      time:'9:00 AM',  seeds:[4,5]},
     {id:'SF1', round:'Semi-Final 1', time:'10:30 AM', seeds:[2,3]},
     {id:'SF2', round:'Semi-Final 2', time:'12:00 PM', seeds:[1,'W_PI']},
-    {id:'BRZ', round:'Bronze',       time:'2:30 PM',  seeds:['L_SF1','L_SF2']},
-    {id:'GLD', round:'Gold',         time:'4:00 PM',  seeds:['W_SF1','W_SF2']}
+    {id:'BRZ', round:'Consolation',    time:'2:30 PM',  seeds:['L_SF1','L_SF2']},
+    {id:'GLD', round:'Championship',   time:'4:00 PM',  seeds:['W_SF1','W_SF2']}
   ];
   if(n===4) return [
     {id:'SF1', round:'Semi-Final 1', time:'10:00 AM', seeds:[1,4]},
     {id:'SF2', round:'Semi-Final 2', time:'11:30 AM', seeds:[2,3]},
-    {id:'BRZ', round:'Bronze',       time:'1:30 PM',  seeds:['L_SF1','L_SF2']},
-    {id:'GLD', round:'Gold',         time:'3:00 PM',  seeds:['W_SF1','W_SF2']}
+    {id:'BRZ', round:'Consolation',    time:'1:30 PM',  seeds:['L_SF1','L_SF2']},
+    {id:'GLD', round:'Championship',   time:'3:00 PM',  seeds:['W_SF1','W_SF2']}
   ];
   if(n===3) return [
-    {id:'GLD', round:'Gold (Final)', time:'2:00 PM', seeds:[1,2]}
+    {id:'GLD', round:'Championship (Final)', time:'2:00 PM', seeds:[1,2]}
   ];
   if(n===6) return [
     {id:'SF1', round:'Semi-Final 1', time:'9:00 AM',  seeds:[1,4]},
     {id:'SF2', round:'Semi-Final 2', time:'10:30 AM', seeds:[2,3]},
-    {id:'BRZ', round:'Bronze',       time:'1:00 PM',  seeds:['L_SF1','L_SF2']},
-    {id:'GLD', round:'Gold',         time:'2:30 PM',  seeds:['W_SF1','W_SF2']}
+    {id:'BRZ', round:'Consolation',    time:'1:00 PM',  seeds:['L_SF1','L_SF2']},
+    {id:'GLD', round:'Championship',   time:'2:30 PM',  seeds:['W_SF1','W_SF2']}
   ];
   if(n==='bg') return [
-    {id:'BRZ',round:'Bronze',time:'10:00 AM',seeds:[3,4]},
-    {id:'GLD',round:'Gold',  time:'12:00 PM',seeds:[1,2]}
+    {id:'BRZ',round:'Consolation',time:'10:00 AM',seeds:[3,4]},
+    {id:'GLD',round:'Championship',  time:'12:00 PM',seeds:[1,2]}
   ];
   return [];
 }
@@ -663,15 +666,32 @@ function pLos(t,id,st,defs){const r=pRes(t,id);if(!r)return{id:null,name:'Loser 
 function getMedalWinners(t){
   const empty={gold:null,silver:null,bronze:null};
   if(!t) return empty;
+  let gold=null, silver=null, bronze=null;
+  /* First check explicit playoffGames by round name (U17-style) */
+  (t.playoffGames||[]).forEach(g=>{
+    const sc=(t.playoffScores||{})[g.id] || (t.scores||{})[g.id];
+    if(!sc||sc.home==null||sc.away==null||!g.home||!g.away) return;
+    const r=(g.round||g.label||'').toLowerCase();
+    const winner=+sc.home>+sc.away?g.home:g.away;
+    const loser =+sc.home<+sc.away?g.home:g.away;
+    if(/championship|gold|final/.test(r)){ gold=winner; silver=loser; }
+    else if(/consolation|bronze/.test(r)){ bronze=winner; }
+  });
+  /* Fall back to playoffDefs (U13-style) */
   const st=(typeof calcStandings==='function')?calcStandings(t):[];
   const defs=playoffDefs(t.numTeams||t.teams.length);
-  if(!defs||!defs.length) return empty;
-  const gldR=pRes(t,'GLD'), brzR=pRes(t,'BRZ');
-  const gldI=gldR?pInfo(t,'GLD',st,defs):null;
-  const brzI=brzR?pInfo(t,'BRZ',st,defs):null;
-  const gold   = gldR&&gldI ? (gldR.h>gldR.a?gldI.homeTeam.id:gldI.awayTeam.id) : null;
-  const silver = gldR&&gldI ? (gldR.h<gldR.a?gldI.homeTeam.id:gldI.awayTeam.id) : null;
-  const bronze = brzR&&brzI ? (brzR.h>brzR.a?brzI.homeTeam.id:brzI.awayTeam.id) : null;
+  if(defs&&defs.length){
+    const gldR=pRes(t,'GLD'), brzR=pRes(t,'BRZ');
+    const gldI=gldR?pInfo(t,'GLD',st,defs):null;
+    const brzI=brzR?pInfo(t,'BRZ',st,defs):null;
+    if(gldR&&gldI&&!gold){
+      gold   = gldR.h>gldR.a?gldI.homeTeam.id:gldI.awayTeam.id;
+      silver = gldR.h<gldR.a?gldI.homeTeam.id:gldI.awayTeam.id;
+    }
+    if(brzR&&brzI&&!bronze){
+      bronze = brzR.h>brzR.a?brzI.homeTeam.id:brzI.awayTeam.id;
+    }
+  }
   return {gold,silver,bronze};
 }
 
@@ -702,9 +722,9 @@ function renderStandings(t,st) {
     const sep=tm.sepBy||'';
     const ssc=(sep==='H2H'||sep==='H2H Diff')?'color:var(--gold);font-weight:700':sep==='Draw'?'color:var(--muted)':tm.capDiffVal>0?'color:var(--green);font-weight:700':tm.capDiffVal<0?'color:var(--red);font-weight:700':tm.capDiffVal===0&&sep?'color:var(--muted);font-weight:700':'color:var(--muted)';
     return `<tr class="s${r}"><td><span class="rk rk${r}">${r}</span></td><td><div class="tcell">${li(tLogo(t,tm.id),26)}<span>${tm.name}</span>${
-      medals.gold===tm.id   ? ' ??' :
-      medals.silver===tm.id ? ' ??' :
-      medals.bronze===tm.id ? ' ??' : ''}</div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td><td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td></tr>`;
+      medals.gold===tm.id   ? ' \uD83E\uDD47' :
+      medals.silver===tm.id ? ' \uD83E\uDD48' :
+      medals.bronze===tm.id ? ' \uD83E\uDD49' : ''}</div></td><td>${tm.gp}</td><td>${tm.w}</td><td>${tm.l}</td><td>${tm.pf}</td><td>${tm.pa}</td><td class="${dc}">${ds}</td><td style="font-size:11px;font-family:'Barlow Condensed',sans-serif;${ssc}">${sep}</td></tr>`;
   }).join('');
 }
 
@@ -717,6 +737,19 @@ function renderSchedule(t) {
     ...(t.playoffGames||[]).filter(g=>g.home||g.round).map(g=>({...g, isPO:true}))
   ];
 
+  const medals = getMedalWinners(t);
+  const medalFor = id => medals.gold===id ? ' \uD83E\uDD47'
+    : medals.silver===id ? ' \uD83E\uDD48'
+    : medals.bronze===id ? ' \uD83E\uDD49' : '';
+  const roundEmoji = r => {
+    const s=(r||'').toLowerCase();
+    if(/championship|gold|final/.test(s)) return '\uD83C\uDFC6';
+    if(/consolation|bronze/.test(s))       return '\uD83E\uDD49';
+    if(/semi/.test(s))                      return '\uD83C\uDFC0';
+    if(/play.?in/.test(s))                  return '\uD83C\uDFC0';
+    return '\uD83C\uDFC6';
+  };
+
   const grp={};
   allGames.forEach(g=>{if(!grp[g.day]) grp[g.day]=[]; grp[g.day].push(g);});
 
@@ -724,7 +757,8 @@ function renderSchedule(t) {
   Object.keys(grp).forEach(day=>{
     html+=`<div class="day-label">${day}</div>`;
     grp[day].forEach(g=>{
-      const sc  = t.scores[g.id];
+      const scStore = g.isPO ? (t.playoffScores||{}) : (t.scores||{});
+      const sc  = scStore[g.id];
       const done= sc&&sc.home!=null&&sc.away!=null;
       const court= (t.courts||[]).find(c=>c.id===g.court);
       const mapUrl= court&&court.address
@@ -735,36 +769,42 @@ function renderSchedule(t) {
       const gcName= go.gc ? (offs.find(o=>o.id===go.gc)||{}).name||'' : '';
 
       /* Game label */
+      const hMedal = g.isPO ? medalFor(g.home) : '';
+      const aMedal = g.isPO ? medalFor(g.away) : '';
       const label = g.isPO
-        ? `<span class="playoff-badge">??</span> ${g.round||g.label||'Playoff'}`
+        ? `<span class="playoff-badge">${roundEmoji(g.round)}</span> ${g.round||g.label||'Playoff'}${g.home&&g.away?` <span style="color:var(--muted);font-size:11px">—</span> ${tName(t,g.home)}${hMedal} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}${aMedal}`:''}`
         : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
 
-      html+=`<div class="gcrd${done?' done':''}">
+      const saveFn = g.isPO ? `doSavePlayoff('${t.id}','${g.id}')` : `doSaveScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
+      const hInputId = g.isPO ? `ph_${t.id}_${g.id}` : `h_${t.id}_${g.id}`;
+      const aInputId = g.isPO ? `pa_${t.id}_${g.id}` : `a_${t.id}_${g.id}`;
+
+      html+=`<div class="gcrd${done?' done':''}${g.isPO?' playoff':''}">
         <div class="gcrd-main">
           <div style="flex:1;min-width:0">
             <div class="gcrd-teams">${label}</div>
             <div class="gcrd-meta">
-              <span>⏰ ${g.time}</span>
+              <span>\u23F0 ${g.time}</span>
               ${court ? `<span style="color:var(--muted)">·</span>
-                <span>?? ${court.name}</span>
+                <span>\uD83D\uDCCD ${court.name}</span>
                 ${court.address ? `<span style="color:var(--muted)">·</span>
                 <span style="font-size:10px;color:var(--muted)">${court.address}</span>
                 <a href="${mapUrl}" target="_blank" rel="noopener"
                   style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:2px 6px;border-radius:4px;text-decoration:none;white-space:nowrap;flex-shrink:0">
-                  ?? Map</a>` : ''}` : ''}
+                  \uD83D\uDDFA Map</a>` : ''}` : ''}
             </div>
-            ${gcName ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">?? GC: ${gcName}</div>` : ''}
+            ${gcName ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">\uD83D\uDEA9 GC: ${gcName}</div>` : ''}
           </div>
           <div class="gcrd-score">
-            ${isAdmin ? `<div style="display:flex;gap:6px;align-items:center">
-              <input class="sinp" id="h_${t.id}_${g.id}" type="number" min="0" placeholder="H"
+            ${isAdmin && (!g.isPO || (g.home && g.away)) ? `<div style="display:flex;gap:6px;align-items:center">
+              <input class="sinp" id="${hInputId}" type="number" min="0" placeholder="H"
                 style="width:48px;${done?'border-color:var(--green)':''}"
                 value="${sc&&sc.home!=null?sc.home:''}">
               <span style="color:var(--muted)">-</span>
-              <input class="sinp" id="a_${t.id}_${g.id}" type="number" min="0" placeholder="A"
+              <input class="sinp" id="${aInputId}" type="number" min="0" placeholder="A"
                 style="width:48px;${done?'border-color:var(--green)':''}"
                 value="${sc&&sc.away!=null?sc.away:''}">
-              <button class="sbtn" onclick="doSaveScore('${t.id}',${g.id})">${done?'&#x270F; Edit':'Save'}</button>
+              <button class="sbtn" onclick="${saveFn}">${done?'\u270F Edit':'Save'}</button>
             </div>` :
             done ? `<div class="final-score">${sc.home}<span style="color:var(--muted);margin:0 4px">-</span>${sc.away}</div>` :
             `<div style="font-size:11px;color:var(--muted)">Upcoming</div>`}
@@ -802,8 +842,8 @@ function renderBracket(t,st) {
       sa=done?`<div class="bentry"><button class="cbtn" onclick="doClearPlayoff('${t.id}','${d.id}')">Clear</button></div>`:`<div class="bentry"><div class="sinps" style="margin-top:4px"><input type="number" id="ph_${t.id}_${d.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="pa_${t.id}_${d.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" style="margin-top:6px" onclick="doSavePlayoff('${t.id}','${d.id}')">Save</button></div>`;
     }
     html+=`<div class="bgame"><div class="bround">${d.round}</div><div class="btime">${d.time}</div>
-      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${info.homeTeam.name}${medals.gold===info.homeTeam.id?' ??':medals.silver===info.homeTeam.id?' ??':medals.bronze===info.homeTeam.id?' ??':''}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
-      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${info.awayTeam.name}${medals.gold===info.awayTeam.id?' ??':medals.silver===info.awayTeam.id?' ??':medals.bronze===info.awayTeam.id?' ??':''}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
+      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${info.homeTeam.name}${medals.gold===info.homeTeam.id?' \uD83E\uDD47':medals.silver===info.homeTeam.id?' \uD83E\uDD48':medals.bronze===info.homeTeam.id?' \uD83E\uDD49':''}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
+      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${info.awayTeam.name}${medals.gold===info.awayTeam.id?' \uD83E\uDD47':medals.silver===info.awayTeam.id?' \uD83E\uDD48':medals.bronze===info.awayTeam.id?' \uD83E\uDD49':''}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
       ${sa}</div>`;
   });
   html+='</div>';
@@ -1030,7 +1070,7 @@ function apSchedule(t) {
   function gameCard(g, isPO) {
     const go = g.officials||{};
     const court = (t.courts||[]).find(c=>c.id===g.court);
-    const title = isPO ? `?? ${g.round||g.label||'Playoff'}` : `${tName(t,g.home)} vs ${tName(t,g.away)}`;
+    const title = isPO ? `\uD83C\uDFC6 ${g.round||g.label||'Playoff'}` : `${tName(t,g.home)} vs ${tName(t,g.away)}`;
     const saveCall = `saveGameOfficials('${t.id}','${g.id}',${isPO})`;
     return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;margin-bottom:8px;${isPO?'border-left:3px solid #f5c518':''}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -1349,9 +1389,9 @@ const DEFAULT_T2 = {
     { id:'c_vr', name:'Vimy Ridge Public School', address:'4180 Kelly Farm Dr, Ottawa ON K1T 4J2' }
   ],
   playoffGames: [
-    { id:'pg1_u17', round:'Bronze Medal Game', label:'3rd Place vs 4th Place',
+    { id:'pg1_u17', round:'Consolation Game', label:'3rd Place vs 4th Place',
       day:'Sun, Apr 26', time:'10:00 AM', court:'c_vr', home:null, away:null, officials:{} },
-    { id:'pg2_u17', round:'Gold Medal Game', label:'1st Place vs 2nd Place',
+    { id:'pg2_u17', round:'Championship Game', label:'1st Place vs 2nd Place',
       day:'Sun, Apr 26', time:'12:00 PM', court:'c_vr', home:null, away:null, officials:{} }
   ],
   scores:{}, playoffScores:{}, rosters:{},
@@ -2117,7 +2157,7 @@ function apGCScores(t) {
       const done = sc[g.id] && sc[g.id].home != null && sc[g.id].away != null;
       const court = (t.courts||[]).find(c=>c.id===g.court);
       const label = g.isPO
-        ? `?? ${g.round||g.label||'Playoff'}`
+        ? `\uD83C\uDFC6 ${g.round||g.label||'Playoff'}`
         : `${tName(t,g.home)} vs ${tName(t,g.away)}`;
 
       h += `<div style="background:var(--surface2);border:1px solid ${done?'var(--green)':'var(--border)'};border-radius:7px;padding:10px 12px;margin-bottom:8px">
@@ -2179,7 +2219,7 @@ function apGCOfficials(t) {
 
   /* Show GC pool */
   h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:6px">
-    ?? Gym Captains (${gcGroup.length})</div>`;
+    \uD83D\uDEA9 Gym Captains (${gcGroup.length})</div>`;
   if(gcGroup.length) {
     h += `<div style="margin-bottom:12px">`;
     gcGroup.forEach(o=>{
@@ -2193,7 +2233,7 @@ function apGCOfficials(t) {
 
   /* Show off-court pool */
   h += `<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">
-    ?? Off-Court Officials (${ocGroup.length})</div>`;
+    \uD83D\uDCCB Off-Court Officials (${ocGroup.length})</div>`;
   if(ocGroup.length) {
     h += `<div style="margin-bottom:12px">`;
     ocGroup.forEach(o=>{
