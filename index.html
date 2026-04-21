@@ -26,7 +26,7 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font
 }
 #modeBanner.view-mode{background:#0f1a2e;color:var(--muted);border-bottom:2px solid var(--border)}
 #modeBanner.admin-mode{background:#1f1200;color:var(--orange);border-bottom:2px solid var(--orange)}
-.mode-left{display:flex;align-items:center;gap:7px}
+.mode-left{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .mode-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 #modeBanner.view-mode .mode-dot{background:var(--muted)}
 #modeBanner.admin-mode .mode-dot{background:var(--orange);box-shadow:0 0 8px var(--orange)}
@@ -35,10 +35,7 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font
 #syncStatus{font-size:10px;color:var(--muted);font-style:italic;font-weight:400;text-transform:none;letter-spacing:0}
 .banner-right{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .bbtn{padding:5px 12px;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;white-space:nowrap;transition:all .15s}
-#btnLogin{background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.35)}
-#btnLogin:hover{background:rgba(249,115,22,.28)}
-#btnLogout{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.35);display:none}
-#btnLogout:hover{background:rgba(239,68,68,.25)}
+#btnAdminAuth, #btnGymAuth{font-size:12px;padding:4px 10px}
 #btnManage{background:rgba(91,138,245,.15);color:#5b8af5;border:1px solid rgba(91,138,245,.35);display:none}
 #btnManage:hover{background:rgba(91,138,245,.28)}
 #refreshBtn{background:rgba(34,197,94,.1);color:var(--green);border:1px solid rgba(34,197,94,.3);padding:4px 10px}
@@ -237,6 +234,8 @@ tr.s5{border-left:3px solid var(--rank5)}
 <!-- MODE BANNER -->
 <div id="modeBanner" class="view-mode">
   <div class="mode-left">
+    <button class="bbtn" id="btnAdminAuth" onclick="onAdminAuthClick()">&#x1F4BB; Admin Login</button>
+    <button class="bbtn" id="btnGymAuth"   onclick="onGymAuthClick()"   style="background:rgba(91,138,245,.15);color:#5b8af5;border:1px solid rgba(91,138,245,.5);font-weight:700">&#x1F6A9; Gym Captain Login</button>
     <div class="mode-dot"></div>
     <span id="modeLabel">View Only Mode</span>
     <span class="live-dot"></span>
@@ -245,9 +244,6 @@ tr.s5{border-left:3px solid var(--rank5)}
   <div class="banner-right">
     <button class="bbtn" id="refreshBtn">&#x21BB; Refresh</button>
     <button class="bbtn" id="btnManage">&#x2699; Manage</button>
-    <button class="bbtn" id="btnLogin" onclick="openLoginModal('admin')">&#x1F4BB; Admin Login</button>
-    <button class="bbtn" id="btnGymLogin" onclick="openLoginModal('gym')" style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.35)">&#x1F6A9; Gym Captain</button>
-    <button class="bbtn" id="btnLogout" onclick="logout()" style="display:none">&#x1F513; Logout</button>
   </div>
 </div>
 
@@ -1365,7 +1361,11 @@ function tryLogin() {
     saveLocal(); closePinModal(); render();
     openAdminPanel('tournaments');
     showToast('\u26A1 Admin unlocked');
-    syncToCloud();   // push any local changes (e.g. migrations) to server
+    /* Re-run any one-time backfills now that we have auth, then push */
+    let pushNeeded = false;
+    if (backfillU17Coaches()) { saveLocal(); pushNeeded = true; }
+    if (backfillU13Officials()) { saveLocal(); pushNeeded = true; }
+    syncToCloud(); // always push on login (no-op if nothing changed)
   } else if(v===gcPin){
     isAdmin=true; loginRole='gym'; _authPin=v;
     saveLocal(); closePinModal(); render();
@@ -1380,31 +1380,34 @@ function tryLogin() {
 }
 function logout(){isAdmin=false;loginRole=null;_authPin=null;localStorage.removeItem('eoba_login_role');saveLocal();closeAdminPanel();render();showToast('Logged out');}
 
+function onAdminAuthClick(){
+  if(isAdmin && loginRole==='admin') logout();
+  else openLoginModal('admin');
+}
+function onGymAuthClick(){
+  if(isAdmin && loginRole==='gym') logout();
+  else openLoginModal('gym');
+}
+
 function updateBanner() {
   const bn=document.getElementById('modeBanner'), lb=document.getElementById('modeLabel');
-  const lI=document.getElementById('btnLogin'), lO=document.getElementById('btnLogout'), mg=document.getElementById('btnManage');
-  const bA=document.getElementById('btnAdminLogin'), bG=document.getElementById('btnGymLogin');
+  const mg=document.getElementById('btnManage');
+  const bA=document.getElementById('btnAdminAuth');
+  const bG=document.getElementById('btnGymAuth');
   if(!bn) return;
   if(isAdmin){
     bn.className='admin-mode';
     lb.textContent=(loginRole==='gym')?'GYM CAPTAIN MODE':'ADMIN MODE';
-    if(lI) lI.style.display='none';
-    if(lO) lO.style.display='';
     if(mg) mg.style.display=(loginRole==='admin')?'':'none';
-    if(bA) bA.style.display='none';
-    if(bG) bG.style.display='none';
-    const gcBtn2=document.getElementById('btnGymLogin');
-    if(gcBtn2) gcBtn2.style.display='none';
+    /* Each button only shows Logout when its own role is active */
+    if(bA) bA.innerHTML=(loginRole==='admin') ? '\uD83D\uDD13 Admin Logout'        : '\uD83D\uDCBB Admin Login';
+    if(bG) bG.innerHTML=(loginRole==='gym')   ? '\uD83D\uDD13 Gym Captain Logout'  : '\uD83D\uDEA9 Gym Captain Login';
   } else {
     bn.className='view-mode';
     lb.textContent='View Only Mode';
-    if(lI) lI.style.display='';
-    if(lO) lO.style.display='none';
     if(mg) mg.style.display='none';
-    const gcBtn=document.getElementById('btnGymLogin');
-    if(bA) bA.style.display='';
-    if(bG) bG.style.display='';
-    if(gcBtn) gcBtn.style.display='';
+    if(bA) bA.innerHTML='\uD83D\uDCBB Admin Login';
+    if(bG) bG.innerHTML='\uD83D\uDEA9 Gym Captain Login';
   }
 }
 
@@ -1423,8 +1426,7 @@ function render(){
 }
 
 // ── EVENT LISTENERS ──
-/* btnLogin uses onclick attribute directly */
-document.getElementById('btnLogout').addEventListener('click', logout);
+/* Auth buttons use onclick attributes (onAdminAuthClick / onGymAuthClick) */
 document.getElementById('btnManage').addEventListener('click', ()=>openAdminPanel('tournaments'));
 document.getElementById('refreshBtn').addEventListener('click', manualRefresh);
 document.getElementById('btnPinSubmit').addEventListener('click', tryLogin);
@@ -1564,10 +1566,18 @@ async function init(){
   if(seededSomething) saveLocal();
 
   /* One-time backfill of U17 coach info (noop once populated) */
-  if (backfillU17Coaches()) saveLocal();
+  let migrated = false;
+  if (backfillU17Coaches()) { saveLocal(); migrated = true; }
 
   /* One-time backfill of U13 officials assignments (noop once populated) */
-  if (backfillU13Officials()) saveLocal();
+  if (backfillU13Officials()) { saveLocal(); migrated = true; }
+
+  /* If migrations changed data AND we're logged in as admin, push to server
+     so all viewers receive the migrated state. (Without this, migrations stay
+     local until admin makes any other edit.) */
+  if (migrated && isAdmin && _authPin) {
+    setTimeout(syncToCloud, 1500);
+  }
 
   render();
   /* If already logged in from previous session, open admin panel automatically */
