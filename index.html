@@ -441,12 +441,14 @@ async function loadFromCloud() {
     const res = await fetch('/api/state', { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const j = await res.json();
-    if (j && j.appState && Array.isArray(j.appState.tournaments)) {
+    if (j && j.appState && Array.isArray(j.appState.tournaments) && j.appState.tournaments.length > 0) {
       appState  = j.appState;
       _stateVer = j.version || 0;
       if (!appState.officials)      appState.officials = [];
       if (!appState.soloTournament) appState.soloTournament = null;
       if (!appState.analytics)      appState.analytics = { days: {} };
+    } else if (j && typeof j.version === 'number') {
+      _stateVer = j.version;
     }
     migrateOfficialRoles();
     saveLocal();
@@ -1468,22 +1470,34 @@ const DEFAULT_T2 = {
 // ── INIT ──
 async function init(){
   loadLocal();
+  /* Pull cloud state BEFORE seeding — so cloud data (if any) wins,
+     and if the cloud is empty we fall through to seeding. */
+  await loadFromCloud();
+
   /* Seed officials from U13 AAA Boys tournament if pool is empty */
+  let seededSomething = false;
   if(!appState.officials || appState.officials.length === 0) {
     appState.officials = [{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
-    saveLocal();
+    seededSomething = true;
   }
-  if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
+  if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026')) {
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
-  if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
+    seededSomething = true;
+  }
+  if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026')) {
     appState.tournaments.push(JSON.parse(JSON.stringify(DEFAULT_T2)));
-  if(!appState.activeTournamentId)
+    seededSomething = true;
+  }
+  if(!appState.activeTournamentId) {
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
+    seededSomething = true;
+  }
+  if(seededSomething) saveLocal();
+
   render();
   /* If already logged in from previous session, open admin panel automatically */
   if(isAdmin) { setTimeout(()=>openAdminPanel('tournaments'), 100); }
-  await loadFromCloud();
-  render(); updateSyncStatus(); startPolling();
+  updateSyncStatus(); startPolling();
 }
 init();
 
