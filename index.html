@@ -853,12 +853,17 @@ function renderSchedule(t) {
       const offs= appState.officials||[];
       const gcName= go.gc ? (offs.find(o=>o.id===go.gc)||{}).name||'' : '';
 
-      /* Game label */
+      /* Game label — show team logos before names */
       const hMedal = g.isPO ? medalFor(g.home) : '';
       const aMedal = g.isPO ? medalFor(g.away) : '';
+      const hLogo  = g.home ? li(tLogo(t,g.home),20) : '';
+      const aLogo  = g.away ? li(tLogo(t,g.away),20) : '';
+      const teamPair = (g.home && g.away)
+        ? `<span style="display:inline-flex;align-items:center;gap:5px;vertical-align:middle">${hLogo}<span>${tName(t,g.home)}${hMedal}</span></span> <span style="color:var(--muted);font-size:11px">vs</span> <span style="display:inline-flex;align-items:center;gap:5px;vertical-align:middle">${aLogo}<span>${tName(t,g.away)}${aMedal}</span></span>`
+        : '';
       const label = g.isPO
-        ? `<span class="playoff-badge">${roundEmoji(g.round)}</span> ${g.round||g.label||'Playoff'}${g.home&&g.away?` <span style="color:var(--muted);font-size:11px">—</span> ${tName(t,g.home)}${hMedal} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}${aMedal}`:''}`
-        : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
+        ? `<span class="playoff-badge">${roundEmoji(g.round)}</span> ${g.round||g.label||'Playoff'}${teamPair?` <span style="color:var(--muted);font-size:11px">—</span> ${teamPair}`:''}`
+        : teamPair;
 
       const saveFn  = g.isPO ? `doSavePlayoff('${t.id}','${g.id}')`  : `doSaveScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
       const clearFn = g.isPO ? `doClearPlayoff('${t.id}','${g.id}')` : `doClearScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
@@ -1747,7 +1752,37 @@ function apOfficials(t) {
     return `<option value="">— Select a ${label} —</option>`+
       group.map(o=>`<option value="${o.id}">${o.name}</option>`).join('');
   }
-  let h=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
+  let h='';
+
+  /* ── ADD OFFICIAL (now at top) ── */
+  h+=`<div style="background:var(--surface2);border:1px solid var(--orange);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:8px">
+      &#x2795; Add Official
+    </div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end">
+      <div><label>Role</label>
+        <select id="f_or" style="width:100%">
+          <option value="Gym Captain">Gym Captain</option>
+          <option value="Off-Court Official">Off-Court Official</option>
+        </select></div>
+      <div><label>Name</label><input id="f_on" placeholder="Full Name" style="width:100%"></div>
+      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100" style="width:100%"></div>
+      <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com" style="width:100%"></div>
+      <button class="ap-btn ap-btn-primary" onclick="addOfficial()" style="grid-column:1/-1;margin-top:4px">Add Official</button>
+    </div>
+    <div style="border-top:1px dashed var(--border);margin-top:10px;padding-top:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
+        Or import multiple from a spreadsheet — Columns: <code>A=Name &nbsp; B=Role &nbsp; C=Phone &nbsp; D=Email</code>
+      </div>
+      <label class="ap-btn ap-btn-primary" style="cursor:pointer;font-size:11px;display:inline-block">
+        &#x1F4CE; Import Excel / CSV
+        <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
+      </label>
+    </div>
+  </div>`;
+
+  /* ── OFFICIALS POOL (existing list) ── */
+  h+=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;
     text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">
     Officials Pool
     <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none">
@@ -1768,44 +1803,6 @@ function apOfficials(t) {
       ${officialOpts(ocGroup,'Off-Court Official')}</select>
     <div id="officialDetail_oc" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
   </div>`;
-  /* Excel import button */
-  h+=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:10px 14px;margin-bottom:12px">
-    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:6px">
-      &#x1F4CA; Import Officials from Excel
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-      Excel columns: <strong>A=Name, B=Role, C=Phone, D=Email</strong><br>
-      Role must be exactly: <code>Gym Captain</code> or <code>Off-Court Official</code>
-    </div>
-    <label class="ap-btn ap-btn-primary" style="cursor:pointer;display:inline-block">
-      &#x1F4CE; Choose Excel File (.xlsx)
-      <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
-    </label>
-  </div>`;
-  h+=`<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:12px">
-    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
-    <div style="background:var(--bg);border:1.5px dashed var(--border);border-radius:7px;padding:10px 12px;margin-bottom:12px">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
-        &#x1F4CA; <strong>Import from Excel/CSV</strong> &nbsp;&#x2014;&nbsp;
-        Columns: <code>A=Name &nbsp; B=Role &nbsp; C=Phone &nbsp; D=Email</code><br>
-        <span style="font-size:10px">Role: <em>Gym Captain</em> or <em>Off-Court Official</em></span>
-      </div>
-      <label class="ap-btn ap-btn-primary" style="cursor:pointer;font-size:11px;display:inline-block">
-        &#x1F4CE; Import Excel / CSV
-        <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
-      </label>
-    </div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end">
-      <div><label>Role</label>
-        <select id="f_or" style="width:100%">
-          <option value="Gym Captain">Gym Captain</option>
-          <option value="Off-Court Official">Off-Court Official</option>
-        </select></div>
-      <div><label>Name</label><input id="f_on" placeholder="Full Name" style="width:100%"></div>
-      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100" style="width:100%"></div>
-      <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com" style="width:100%"></div>
-      <button class="ap-btn ap-btn-primary" onclick="addOfficial()" style="grid-column:1/-1;margin-top:4px">Add Official</button>
-    </div></div>`;
   return h;
 }
 
