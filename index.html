@@ -234,7 +234,7 @@ tr.s5{border-left:3px solid var(--rank5)}
 <!-- MODE BANNER -->
 <div id="modeBanner" class="view-mode">
   <div class="mode-left">
-    <button class="bbtn" id="btnAdminAuth" onclick="onAdminAuthClick()">&#x1F4BB; Admin Login</button>
+    <button class="bbtn" id="btnAdminAuth" onclick="onAdminAuthClick()" style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.5);font-weight:700">&#x1F4BB; Admin Login</button>
     <button class="bbtn" id="btnGymAuth"   onclick="onGymAuthClick()"   style="background:rgba(91,138,245,.15);color:#5b8af5;border:1px solid rgba(91,138,245,.5);font-weight:700">&#x1F6A9; Gym Captain Login</button>
     <div class="mode-dot"></div>
     <span id="modeLabel">View Only Mode</span>
@@ -628,8 +628,14 @@ function resStep4(t, sorted, cd) {
     while(j<sorted.length && cd[sorted[j].id]===cd[sorted[i].id]) j++;
     if(j-i===2) {
       const w=h2h(t,sorted[i].id,sorted[i+1].id);
-      const pair=(w===sorted[i+1].id)?[sorted[i+1],sorted[i]]:[sorted[i],sorted[i+1]];
-      pair.forEach(tm=>{tm.sepBy='H2H';}); res.push(...pair);
+      if (w) {
+        /* H2H decided the tie */
+        const pair=(w===sorted[i+1].id)?[sorted[i+1],sorted[i]]:[sorted[i],sorted[i+1]];
+        pair.forEach(tm=>{tm.sepBy='H2H';}); res.push(...pair);
+      } else {
+        /* No H2H game played → leave cap-diff label set by caller */
+        res.push(sorted[i], sorted[i+1]);
+      }
     } else { for(let k=i;k<j;k++) res.push(sorted[k]); }
     i=j;
   }
@@ -839,7 +845,8 @@ function renderSchedule(t) {
         ? `<span class="playoff-badge">${roundEmoji(g.round)}</span> ${g.round||g.label||'Playoff'}${g.home&&g.away?` <span style="color:var(--muted);font-size:11px">—</span> ${tName(t,g.home)}${hMedal} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}${aMedal}`:''}`
         : `${tName(t,g.home)} <span style="color:var(--muted);font-size:11px">vs</span> ${tName(t,g.away)}`;
 
-      const saveFn = g.isPO ? `doSavePlayoff('${t.id}','${g.id}')` : `doSaveScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
+      const saveFn  = g.isPO ? `doSavePlayoff('${t.id}','${g.id}')`  : `doSaveScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
+      const clearFn = g.isPO ? `doClearPlayoff('${t.id}','${g.id}')` : `doClearScore('${t.id}',${typeof g.id==='number'?g.id:`'${g.id}'`})`;
       const hInputId = g.isPO ? `ph_${t.id}_${g.id}` : `h_${t.id}_${g.id}`;
       const aInputId = g.isPO ? `pa_${t.id}_${g.id}` : `a_${t.id}_${g.id}`;
 
@@ -860,7 +867,7 @@ function renderSchedule(t) {
             ${gcName ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">\uD83D\uDEA9 GC: ${gcName}</div>` : ''}
           </div>
           <div class="gcrd-score">
-            ${isAdmin && (!g.isPO || (g.home && g.away)) ? `<div style="display:flex;gap:6px;align-items:center">
+            ${isAdmin && (!g.isPO || (g.home && g.away)) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
               ${done?`<span class="final-score" style="font-size:22px;margin-right:6px">${sc.home}<span style="color:var(--muted);font-weight:400;margin:0 3px">-</span>${sc.away}</span>`:''}
               <input class="sinp" id="${hInputId}" type="number" min="0" placeholder="H"
                 style="width:48px;${done?'border-color:var(--green)':''}"
@@ -869,7 +876,8 @@ function renderSchedule(t) {
               <input class="sinp" id="${aInputId}" type="number" min="0" placeholder="A"
                 style="width:48px;${done?'border-color:var(--green)':''}"
                 value="${sc&&sc.away!=null?sc.away:''}">
-              <button class="sbtn" onclick="${saveFn}">${done?'\u270F Edit':'Save'}</button>
+              <button class="sbtn" onclick="${saveFn}">${done?'\u270F Update':'Save'}</button>
+              ${done?`<button class="cbtn" onclick="${clearFn}" title="Clear score">\u2715</button>`:''}
             </div>` :
             done ? `<div class="final-score">${sc.home}<span style="color:var(--muted);margin:0 4px;font-weight:400">-</span>${sc.away}</div>` :
             `<div style="font-size:11px;color:var(--muted)">Upcoming</div>`}
