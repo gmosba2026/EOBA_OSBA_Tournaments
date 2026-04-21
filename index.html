@@ -773,7 +773,22 @@ function renderHeader(t) {
   const mEl=document.getElementById('headerMeta');
   if(!t){tEl.textContent='No Active Tournament';mEl.innerHTML='';return;}
   tEl.innerHTML=`${t.division} ${t.stream} <span>${t.gender}</span>`;
-  mEl.innerHTML=`<span>&#128197; ${t.dates}</span><span>&#128205; ${t.location}</span>`;
+  /* Build per-venue list with map links if courts have addresses; otherwise
+     fall back to the t.location summary. */
+  const courts = (t.courts || []).filter(c => c && c.name);
+  let venuesHtml = '';
+  if (courts.length) {
+    venuesHtml = courts.map(c => {
+      const map = c.address
+        ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}" target="_blank" rel="noopener" style="color:var(--orange);text-decoration:none;font-weight:700;margin-left:6px;border:1px solid rgba(249,115,22,.4);padding:1px 7px;border-radius:4px;font-size:11px">\uD83D\uDDFA Map</a>`
+        : '';
+      const addr = c.address ? `<span style="color:var(--muted);font-size:11px;margin-left:4px">— ${c.address}</span>` : '';
+      return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin-top:2px"><span>\uD83D\uDCCD ${c.name}</span>${addr}${map}</div>`;
+    }).join('');
+  } else {
+    venuesHtml = `<span>\uD83D\uDCCD ${t.location||''}</span>`;
+  }
+  mEl.innerHTML = `<div style="margin-bottom:2px">\uD83D\uDCC5 ${t.dates}</div>${venuesHtml}`;
 }
 
 function renderTeams(t) {
@@ -1084,16 +1099,16 @@ function apTeams(t) {
       </div>
       <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Coach Contact</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="display:grid;grid-template-columns:1fr;gap:6px">
           <input placeholder="Coach name" value="${(c.name||'').replace(/"/g,'&quot;')}"
             oninput="setCoachField('${t.id}','${tm.id}','name',this.value)"
-            style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:12px">
-          <input placeholder="Phone" value="${(c.phone||'').replace(/"/g,'&quot;')}"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:6px 8px;font-size:12px">
+          <input placeholder="Phone (e.g. 613-555-0100)" value="${(c.phone||'').replace(/"/g,'&quot;')}"
             oninput="setCoachField('${t.id}','${tm.id}','phone',this.value)"
-            style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:12px">
-          <input placeholder="Email" type="email" value="${(c.email||'').replace(/"/g,'&quot;')}"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:6px 8px;font-size:12px">
+          <input placeholder="Email (name@email.com)" type="email" value="${(c.email||'').replace(/"/g,'&quot;')}"
             oninput="setCoachField('${t.id}','${tm.id}','email',this.value)"
-            style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 8px;font-size:12px">
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:6px 8px;font-size:12px">
         </div>
       </div>
     </div>`;
@@ -2449,10 +2464,10 @@ function apGCCoaches(t) {
         ${logo?`<img src="${logo}" width="28" height="28" style="object-fit:contain;border-radius:3px;flex-shrink:0">`:`<div style="width:28px;height:28px;background:var(--border);border-radius:3px;flex-shrink:0"></div>`}
         <div style="font-weight:700;font-size:13px">${tm.name}</div>
       </div>
-      ${hasInfo?`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;padding-left:38px">
-        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Coach</div><div>${c.name||'\u2014'}</div></div>
-        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Phone</div><div>${c.phone?`<a href="tel:${c.phone}" style="color:var(--orange);text-decoration:none">${c.phone}</a>`:'\u2014'}</div></div>
-        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Email</div><div>${c.email?`<a href="mailto:${c.email}" style="color:var(--orange);text-decoration:none;word-break:break-all">${c.email}</a>`:'\u2014'}</div></div>
+      ${hasInfo?`<div style="display:grid;grid-template-columns:1fr;gap:6px;font-size:12px;padding-left:38px">
+        <div><span style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-right:6px">Coach</span>${c.name||'\u2014'}</div>
+        <div><span style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-right:6px">Phone</span>${c.phone?`<a href="tel:${c.phone}" style="color:var(--orange);text-decoration:none">${c.phone}</a>`:'\u2014'}</div>
+        <div><span style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-right:6px">Email</span>${c.email?`<a href="mailto:${c.email}" style="color:var(--orange);text-decoration:none;word-break:break-all">${c.email}</a>`:'\u2014'}</div>
       </div>`:`<div style="font-size:11px;color:var(--muted);padding-left:38px;font-style:italic">No contact info on file</div>`}
     </div>`;
   });
