@@ -51,8 +51,9 @@ header::before{content:'';position:absolute;inset:0;pointer-events:none;backgrou
 .hhost{font-size:clamp(11px,2vw,14px);color:var(--silver);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .htitle{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:clamp(26px,5.5vw,50px);line-height:1;text-transform:uppercase;color:#fff}
 .htitle span{color:var(--orange)}
-.hmeta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:8px;font-size:13px;color:var(--silver)}
-.hmeta span{display:flex;align-items:center;gap:5px}
+.hmeta{display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:8px;font-size:13px;color:var(--silver)}
+.hmeta span{display:inline-flex;align-items:center;gap:5px}
+.hmeta .venue-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;justify-content:center}
 
 /* ── LAYOUT ── */
 main{max-width:1100px;margin:0 auto;padding:24px 14px 60px;display:grid;gap:22px}
@@ -772,7 +773,11 @@ function renderHeader(t) {
   const tEl=document.getElementById('headerTitle');
   const mEl=document.getElementById('headerMeta');
   if(!t){tEl.textContent='No Active Tournament';mEl.innerHTML='';return;}
-  tEl.innerHTML=`${t.division} ${t.stream} <span>${t.gender}</span>`;
+  /* Title format: "{division} \u2014 {gender tier [stream]}"
+     The whole "Boys AAA" / "Girls AAA Div 1" segment is the orange-coloured part. */
+  const tier   = t.tier || 'AAA';
+  const stream = (t.stream && t.stream.toUpperCase() !== tier.toUpperCase()) ? ` ${t.stream}` : '';
+  tEl.innerHTML = `${t.division} \u2014 <span>${t.gender} ${tier}${stream}</span>`;
   /* Build per-venue list with map links if courts have addresses; otherwise
      fall back to the t.location summary. */
   const courts = (t.courts || []).filter(c => c && c.name);
@@ -780,15 +785,15 @@ function renderHeader(t) {
   if (courts.length) {
     venuesHtml = courts.map(c => {
       const map = c.address
-        ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}" target="_blank" rel="noopener" style="color:var(--orange);text-decoration:none;font-weight:700;margin-left:6px;border:1px solid rgba(249,115,22,.4);padding:1px 7px;border-radius:4px;font-size:11px">\uD83D\uDDFA Map</a>`
+        ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}" target="_blank" rel="noopener" style="color:var(--orange);text-decoration:none;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:1px 7px;border-radius:4px;font-size:11px">\uD83D\uDDFA Map</a>`
         : '';
-      const addr = c.address ? `<span style="color:var(--muted);font-size:11px;margin-left:4px">— ${c.address}</span>` : '';
-      return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin-top:2px"><span>\uD83D\uDCCD ${c.name}</span>${addr}${map}</div>`;
+      const addr = c.address ? `<span style="color:var(--muted);font-size:11px">— ${c.address}</span>` : '';
+      return `<div class="venue-row"><span>\uD83D\uDCCD ${c.name}</span>${addr}${map}</div>`;
     }).join('');
   } else {
-    venuesHtml = `<span>\uD83D\uDCCD ${t.location||''}</span>`;
+    venuesHtml = `<div class="venue-row"><span>\uD83D\uDCCD ${t.location||''}</span></div>`;
   }
-  mEl.innerHTML = `<div style="margin-bottom:2px">\uD83D\uDCC5 ${t.dates}</div>${venuesHtml}`;
+  mEl.innerHTML = `<div><span>\uD83D\uDCC5 ${t.dates}</span></div>${venuesHtml}`;
 }
 
 function renderTeams(t) {
