@@ -1910,7 +1910,7 @@ function recalc(){
   document.getElementById('f_grand').textContent=fmt(gym+ref+t1+t2+t3+gc);
 }
 recalc();
-</script>
+<\/script>
 </body></html>`;
   try{const blob=new Blob([body],{type:'text/html'});window.open(URL.createObjectURL(blob),'_blank');}
   catch(e){const i=document.createElement('iframe');i.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:99999;background:#fff';i.srcdoc=body;document.body.appendChild(i);const b=document.createElement('button');b.textContent='\u00d7 Close';b.style.cssText='position:fixed;top:12px;right:16px;z-index:100000;padding:8px 16px;background:#6b2fa0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold';b.onclick=()=>{i.remove();b.remove();};document.body.appendChild(b);}
