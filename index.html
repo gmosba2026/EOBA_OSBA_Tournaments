@@ -1308,6 +1308,7 @@ function updateBanner() {
   }
 }
 
+let _tt;
 function showToast(msg,err=false){
   const el=document.getElementById('toast');
   el.textContent=msg; el.style.background=err?'#2d1e1e':'#1e2d1e'; el.style.color=err?'var(--red)':'var(--green)'; el.style.borderColor=err?'rgba(239,68,68,.4)':'rgba(34,197,94,.4)';
