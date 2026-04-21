@@ -1780,16 +1780,16 @@ function apOfficials(t) {
         <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)">
       </label>
     </div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end">
       <div><label>Role</label>
-        <select id="f_or">
+        <select id="f_or" style="width:100%">
           <option value="Gym Captain">Gym Captain</option>
           <option value="Off-Court Official">Off-Court Official</option>
         </select></div>
-      <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
-      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
-      <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
-      <button class="ap-btn ap-btn-primary" onclick="addOfficial()">Add</button>
+      <div><label>Name</label><input id="f_on" placeholder="Full Name" style="width:100%"></div>
+      <div><label>Phone</label><input id="f_op" placeholder="613-555-0100" style="width:100%"></div>
+      <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com" style="width:100%"></div>
+      <button class="ap-btn ap-btn-primary" onclick="addOfficial()" style="grid-column:1/-1;margin-top:4px">Add Official</button>
     </div></div>`;
   return h;
 }
