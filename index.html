@@ -340,9 +340,9 @@ tr.s5{border-left:3px solid var(--rank5)}
 
 // ── CONSTANTS ──
 const PIN     = '128976';
-const BIN_ID  = '69d93d4caaba882197e5c079';
+let BIN_ID = localStorage.getItem('eoba_bin_id') || '69d93d4caaba882197e5c079';
 const BIN_KEY = '$2a$10$gVC5tMMMYQVj1ClnAoF9Xu4SaVjE7cdQNZz.6m0rDee1A38E4yxDq';
-const BIN_URL = 'https://api.jsonbin.io/v3/b/' + BIN_ID;
+const BIN_BASE = 'https://api.jsonbin.io/v3/b/'; const BIN_URL = BIN_BASE + BIN_ID;
 const LS_KEY  = 'eoba_hub_v1';
 
 // ── BUILT-IN LOGOS ──
@@ -397,35 +397,134 @@ function loadLocal() {
 }
 async function syncToCloud() {
   saveLocal();
+  /* If no bin exists yet, create one first */
+  if(!BIN_ID) { await createBin(); if(!BIN_ID) return; }
   try {
-    await fetch(BIN_URL, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},
-      body: JSON.stringify({ version:2, ...appState })
+    const payload = buildSyncPayload();
+    const res = await fetch(BIN_BASE + BIN_ID, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json','X-Master-Key':BIN_KEY},
+      body: JSON.stringify(payload)
     });
-    updateSyncStatus();
-    showToast('Saved \u2713');
-  } catch(e) { showToast('Saved locally \u2014 check connection', true); }
-}
-async function loadFromCloud() {
-  try {
-    const res  = await fetch(BIN_URL + '/latest', { headers:{'X-Master-Key':BIN_KEY} });
-    const data = await res.json();
-    const rec  = data.record || {};
-    if (rec.version === 2) {
-      if (rec.tournaments)       appState.tournaments       = rec.tournaments;
-      if (rec.activeTournamentId) appState.activeTournamentId = rec.activeTournamentId;
-    } else if (rec.scores !== undefined || rec.playoffScores !== undefined) {
-      // Migrate v1 scores to default tournament
-      const t = appState.tournaments.find(t => t.id === 'eoba_u13_2026');
-      if (t) {
-        if (rec.scores)        t.scores        = rec.scores;
-        if (rec.playoffScores) t.playoffScores = rec.playoffScores;
-      }
+    if(res.status === 404) {
+      /* Bin was deleted — create a new one */
+      BIN_ID = ''; localStorage.removeItem('eoba_bin_id');
+      await createBin();
+      if(BIN_ID) await syncToCloud();
+      return;
     }
-    saveLocal();
-  } catch(e) {}
+    if(res.ok) { updateSyncStatus(); }
+  } catch(e) { console.warn('[EOBA] sync failed:', e.message); }
 }
+
+function buildSyncPayload() {
+  /* Strip logos from tournaments to keep payload small */
+  const slimT = (appState.tournaments||[]).map(t => {
+    const s = JSON.parse(JSON.stringify(t));
+    delete s.headerBg;
+    (s.teams||[]).forEach(tm => { if(tm.logo && tm.logo.length > 5000) delete tm.logo; });
+    return s;
+  });
+  return {
+    version: 2,
+    _savedAt: Date.now(),
+    officials: appState.officials || [],
+    gymCaptainPin: appState.gymCaptainPin || '',
+    activeTournamentId: appState.activeTournamentId,
+    tournaments: slimT
+  };
+}
+
+async function createBin() {
+  try {
+    const res = await fetch(BIN_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        'X-Master-Key': BIN_KEY,
+        'X-Bin-Name': 'EOBA_Tournaments',
+        'X-Bin-Private': 'true'
+      },
+      body: JSON.stringify(buildSyncPayload())
+    });
+    const data = await res.json();
+    const newId = data?.metadata?.id;
+    if(newId) {
+      BIN_ID = newId;
+      localStorage.setItem('eoba_bin_id', newId);
+      console.log('[EOBA] New bin created:', newId);
+      if(isAdmin) showToast('\u2713 Cloud sync active — Bin: ' + newId);
+    }
+  } catch(e) { console.warn('[EOBA] createBin failed:', e.message); }
+}
+
+
+async function loadFromCloud() {
+  if(!BIN_ID) {
+    /* No bin yet — try to create one */
+    await createBin();
+    return;
+  }
+  try {
+    const res = await fetch(BIN_BASE + BIN_ID + '/latest', {
+      headers: {'X-Master-Key': BIN_KEY}
+    });
+    if(res.status === 404 || res.status === 403) {
+      console.warn('[EOBA] Bin not found, creating new one...');
+      BIN_ID = ''; localStorage.removeItem('eoba_bin_id');
+      await createBin(); return;
+    }
+    if(!res.ok) { console.warn('[EOBA] load failed:', res.status); return; }
+    const data = await res.json();
+    const rec = data.record || {};
+    if(rec.version === 2) {
+      /* Merge tournaments — prefer cloud data but keep local logos */
+      if(rec.tournaments && rec.tournaments.length) {
+        const localT = appState.tournaments;
+        appState.tournaments = rec.tournaments;
+        /* Restore logos from local (cloud strips them to save space) */
+        appState.tournaments.forEach(ct => {
+          const lt = localT.find(x => x.id === ct.id);
+          if(!lt) return;
+          (ct.teams||[]).forEach(ctm => {
+            if(!ctm.logo) {
+              const ltm = (lt.teams||[]).find(x => x.id === ctm.id);
+              if(ltm && ltm.logo) ctm.logo = ltm.logo;
+            }
+          });
+          /* Restore game officials from local if local is newer */
+          const localNewer = (appState._savedAt||0) > (rec._savedAt||0);
+          if(localNewer) {
+            (ct.games||[]).forEach(cg => {
+              const lg = (lt.games||[]).find(x => x.id === cg.id);
+              if(lg && lg.officials) cg.officials = JSON.parse(JSON.stringify(lg.officials));
+            });
+          }
+        });
+      }
+      if(rec.officials && rec.officials.length > 0) appState.officials = rec.officials;
+      if(rec.gymCaptainPin) appState.gymCaptainPin = rec.gymCaptainPin;
+      if(!appState.activeTournamentId && rec.activeTournamentId)
+        appState.activeTournamentId = rec.activeTournamentId;
+      /* Ensure DEFAULT_T courts/playoffGames are present */
+      [DEFAULT_T, DEFAULT_T2].forEach(seed => {
+        const t = appState.tournaments.find(x => x.id === seed.id);
+        if(!t) return;
+        if(!t.courts || !t.courts.length) t.courts = seed.courts || [];
+        if(!t.playoffGames || !t.playoffGames.length)
+          t.playoffGames = JSON.parse(JSON.stringify(seed.playoffGames || []));
+        seed.teams.forEach(st => {
+          const tt = t.teams.find(x => x.id === st.id);
+          if(tt) { if(!tt.logo && st.logo) tt.logo = st.logo; if(!tt.name || tt.name === st.id) tt.name = st.name; }
+        });
+      });
+      migrateOfficialRoles();
+      saveLocal();
+    }
+  } catch(e) { console.warn('[EOBA] loadFromCloud:', e.message); }
+}
+
+
 async function manualRefresh() {
   const btn = document.getElementById('refreshBtn');
   if (btn) btn.textContent = '\u21BB Syncing\u2026';
