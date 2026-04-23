@@ -1384,12 +1384,14 @@ async function init(){
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
 
   /* One-time title migration for U17/19 tournament. Idempotent: only fires
-     if the exact old values are present. Touches only 3 string fields on
-     this one tournament. */
+     if any field has drifted from the canonical values. Auto-heals data
+     corruption like division="U17/19 Girls" (which caused "GIRLS GIRLS" in
+     the rendered title). */
   (function migrateU17Title(){
     const t = appState.tournaments.find(x => x.id === 'eoba_u17_2026');
     if(!t) return;
-    if(t.stream !== 'Girls AAA' || t.gender !== 'Div 1'){
+    if(t.division !== 'U17/19' || t.stream !== 'Girls AAA' || t.gender !== 'Div 1'){
+      t.division = 'U17/19';
       t.stream = 'Girls AAA';
       t.gender = 'Div 1';
       saveLocal();
