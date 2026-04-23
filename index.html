@@ -399,11 +399,12 @@ async function syncToCloud() {
   if (!_cloudLoadedOk) {
     console.warn('[EOBA] sync blocked — cloud not yet loaded');
     if (isAdmin) showToast('\u26A0 Not synced from cloud yet \u2014 hit \u21BB Refresh, then retry', true);
-    return;
+    return false;
   }
   saveLocal();
   /* If no bin exists yet, create one first */
-  if(!BIN_ID) { await createBin(); if(!BIN_ID) return; }
+  if(!BIN_ID) { await createBin(); if(!BIN_ID) return false; }
+  let ok = false;
   try {
     const payload = buildSyncPayload();
     const res = await fetch(BIN_BASE + BIN_ID, {
@@ -412,17 +413,14 @@ async function syncToCloud() {
       body: JSON.stringify(payload)
     });
     if(res.status === 404) {
-      /* Bin was deleted — create a new one */
+      /* Bin was deleted — create a new one then retry once */
       BIN_ID = ''; localStorage.removeItem('eoba_bin_id');
       await createBin();
-      if(BIN_ID) await syncToCloud();
-      return;
+      if(BIN_ID) return await syncToCloud();
+      return false;
     }
     if(res.ok) {
-      /* Record local save time so loadFromCloud's merge can tell if local is newer. */
-      appState._savedAt = payload._savedAt;
-      saveLocal();
-      updateSyncStatus();
+      ok = true;
     } else {
       console.warn('[EOBA] sync HTTP', res.status);
       if(isAdmin) showToast('\u26A0 Sync failed (HTTP '+res.status+') \u2014 retry', true);
@@ -431,6 +429,15 @@ async function syncToCloud() {
     console.warn('[EOBA] sync failed:', e.message);
     if(isAdmin) showToast('\u26A0 Sync failed \u2014 check connection', true);
   }
+  /* Cloud is the sole source of truth. After every write attempt (success OR failure),
+     pull authoritative state from cloud and re-render so local state can never diverge.
+     On success this confirms the new state; on failure it reverts the optimistic local
+     mutation back to what the database actually holds. */
+  await loadFromCloud();
+  render();
+  if(document.querySelector('#adminPanel.open')) renderAdminPanel();
+  updateSyncStatus();
+  return ok;
 }
 
 function buildSyncPayload() {
@@ -509,14 +516,7 @@ async function loadFromCloud() {
               if(ltm && ltm.logo) ctm.logo = ltm.logo;
             }
           });
-          /* Restore game officials from local if local is newer */
-          const localNewer = (appState._savedAt||0) > (rec._savedAt||0);
-          if(localNewer) {
-            (ct.games||[]).forEach(cg => {
-              const lg = (lt.games||[]).find(x => x.id === cg.id);
-              if(lg && lg.officials) cg.officials = JSON.parse(JSON.stringify(lg.officials));
-            });
-          }
+          /* Cloud is the sole source of truth — no local-wins merge. */
         });
       }
       if(rec.officials && rec.officials.length > 0) appState.officials = rec.officials;
@@ -534,7 +534,11 @@ async function loadFromCloud() {
         if(t.hideTeamsGrid === undefined && seed.hideTeamsGrid !== undefined) t.hideTeamsGrid = seed.hideTeamsGrid;
         seed.teams.forEach(st => {
           const tt = t.teams.find(x => x.id === st.id);
-          if(tt) { if(!tt.logo && st.logo) tt.logo = st.logo; if(!tt.name || tt.name === st.id) tt.name = st.name; }
+          if(!tt) return;
+          const nameLocked = !!(tt.nameApproved || tt.approved);
+          const logoLocked = !!(tt.logoApproved || tt.approved);
+          if(!logoLocked && !tt.logo && st.logo) tt.logo = st.logo;
+          if(!nameLocked && (!tt.name || tt.name === st.id)) tt.name = st.name;
         });
       });
       migrateOfficialRoles();
@@ -554,7 +558,13 @@ async function manualRefresh() {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    if (isAdmin) return;
+    /* Poll for cloud updates on ALL devices (admin, gym captain, viewer).
+       Skip a poll cycle only when the user is actively editing, so we don't
+       wipe their focus or mid-typed input. */
+    const ae = document.activeElement;
+    const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+    const panelOpen = !!document.querySelector('#adminPanel.open');
+    if (typing || panelOpen) return;
     await loadFromCloud(); render(); updateSyncStatus();
   }, 15000);
 }
@@ -606,7 +616,7 @@ function removeTeam(tId, tmId) {
 function updateLogo(tId, tmId, logo) {
   const t = appState.tournaments.find(t => t.id === tId); if (!t) return;
   const tm = t.teams.find(m => m.id === tmId); if (!tm) return;
-  if (tm.approved) { showToast('Team is locked — unlock before changing logo', true); return; }
+  if (tm.logoApproved || tm.approved) { showToast('Logo is locked \u2014 unlock before changing', true); return; }
   tm.logo = logo; syncToCloud(); render(); renderAdminPanel();
 }
 
@@ -1477,23 +1487,27 @@ function apTeams(t) {
   t.teams.forEach(tm=>{
     const logo=tLogo(t,tm.id);
     const rCount=(t.rosters&&t.rosters[tm.id])?t.rosters[tm.id].length:0;
-    const locked = !!tm.approved;
-    const lockBtn = locked
-      ? `<button class="ap-btn ap-btn-sm" title="Unlock team" onclick="toggleTeamApproval('${t.id}','${tm.id}')">&#x1F513; Unlock</button>`
-      : `<button class="ap-btn ap-btn-sm" title="Approve & lock name/logo" onclick="toggleTeamApproval('${t.id}','${tm.id}')">&#x1F512; Approve</button>`;
-    const editBtns = locked
-      ? `<span class="ap-item-sub" style="color:var(--gold);font-weight:700">&#x1F512; Locked</span>`
+    const nameLocked = !!(tm.nameApproved || tm.approved);
+    const logoLocked = !!(tm.logoApproved || tm.approved);
+    const nameControl = nameLocked
+      ? `<span class="ap-item-sub" style="color:var(--gold);font-weight:700">&#x1F512; Name</span>
+         <button class="ap-btn ap-btn-sm" title="Unlock name" onclick="toggleNameApproval('${t.id}','${tm.id}')">&#x1F513;</button>`
       : `<button class="ap-btn ap-btn-sm" onclick="openRenameTeam('${t.id}','${tm.id}')">&#x270F; Rename</button>
-         <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo<input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')"></label>`;
+         <button class="ap-btn ap-btn-sm" title="Approve &amp; lock name" onclick="toggleNameApproval('${t.id}','${tm.id}')">&#x1F512; Name</button>`;
+    const logoControl = logoLocked
+      ? `<span class="ap-item-sub" style="color:var(--gold);font-weight:700">&#x1F512; Logo</span>
+         <button class="ap-btn ap-btn-sm" title="Unlock logo" onclick="toggleLogoApproval('${t.id}','${tm.id}')">&#x1F513;</button>`
+      : `<label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo<input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')"></label>
+         <button class="ap-btn ap-btn-sm" title="Approve &amp; lock logo" onclick="toggleLogoApproval('${t.id}','${tm.id}')">&#x1F512; Logo</button>`;
     h+=`<div class="ap-item">
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
         ${logo?`<img src="${logo}" width="36" height="36" style="object-fit:contain;border-radius:4px;flex-shrink:0">`:`<div style="width:36px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px">?</div>`}
         <div style="min-width:0"><div class="ap-item-name">${tm.name}</div><div class="ap-item-sub">${rCount} player${rCount!==1?'s':''}</div></div>
       </div>
       <div class="ap-item-actions">
-        ${editBtns}
-        ${lockBtn}
-        ${tm.id.startsWith('TM_') && !locked?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveTeam('${t.id}','${tm.id}')">Remove</button>`:''}
+        ${nameControl}
+        ${logoControl}
+        ${tm.id.startsWith('TM_') && !nameLocked && !logoLocked?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveTeam('${t.id}','${tm.id}')">Remove</button>`:''}
       </div></div>`;
   });
   return h;
@@ -1796,17 +1810,53 @@ function openRenameTeam(tId,tmId){
 function submitRenameTeam(tId,tmId){
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
-  if(tm.approved){ showToast('Team is locked — unlock before renaming', true); return; }
+  if(tm.nameApproved || tm.approved){ showToast('Name is locked \u2014 unlock before renaming', true); return; }
   const n=document.getElementById('f_rn')?.value.trim();
   if(!n) return showToast('Enter a name',true);
   tm.name=n; syncToCloud(); closeModal(); renderAdminPanel(); showToast('Team renamed \u2713');
 }
+function toggleNameApproval(tId,tmId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  const isLocked = !!(tm.nameApproved || tm.approved);
+  if(isLocked){
+    if(!confirm('Unlock the name for "'+tm.name+'"? It will become editable again.')) return;
+    tm.nameApproved=false;
+    /* legacy single-flag migration: approved:true meant both locked; preserve logo lock */
+    if(tm.approved){ tm.logoApproved=true; delete tm.approved; }
+  } else {
+    tm.nameApproved=true;
+  }
+  syncToCloud(); render(); renderAdminPanel();
+  showToast(tm.nameApproved ? 'Name locked \u2713' : 'Name unlocked');
+}
+function toggleLogoApproval(tId,tmId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  const isLocked = !!(tm.logoApproved || tm.approved);
+  if(isLocked){
+    if(!confirm('Unlock the logo for "'+tm.name+'"? It will become editable again.')) return;
+    tm.logoApproved=false;
+    if(tm.approved){ tm.nameApproved=true; delete tm.approved; }
+  } else {
+    tm.logoApproved=true;
+  }
+  syncToCloud(); render(); renderAdminPanel();
+  showToast(tm.logoApproved ? 'Logo locked \u2713' : 'Logo unlocked');
+}
+/* Legacy shim kept in case a cached older UI calls the single-flag toggle. Flips both locks together. */
 function toggleTeamApproval(tId,tmId){
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
-  tm.approved = !tm.approved;
+  const anyLocked = !!(tm.nameApproved || tm.logoApproved || tm.approved);
+  if(anyLocked){
+    if(!confirm('Unlock name and logo for "'+tm.name+'"? Both will become editable again.')) return;
+    tm.nameApproved=false; tm.logoApproved=false; delete tm.approved;
+  } else {
+    tm.nameApproved=true; tm.logoApproved=true;
+  }
   syncToCloud(); render(); renderAdminPanel();
-  showToast(tm.approved ? 'Team locked \u2713' : 'Team unlocked');
+  showToast((tm.nameApproved||tm.logoApproved) ? 'Team locked \u2713' : 'Team unlocked');
 }
 function openEditTournament(tId){
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
@@ -1924,7 +1974,24 @@ function importData(e){
         const ex=appState.tournaments.find(t=>t.id===imp.id);
         if(ex){if(imp.scores)ex.scores=imp.scores;if(imp.playoffScores)ex.playoffScores=imp.playoffScores;
           if(imp.rosters)ex.rosters=imp.rosters;if(imp.games)ex.games=imp.games;
-          if(imp.courts)ex.courts=imp.courts;if(imp.teams)ex.teams=imp.teams;
+          if(imp.courts)ex.courts=imp.courts;
+          if(imp.teams){
+            /* Change 2a: preserve any team with an approval flag verbatim from local state.
+               Approved locals substitute their imported counterpart; approved locals absent from the import are retained. */
+            const oldTeams = ex.teams || [];
+            const localByid = {};
+            oldTeams.forEach(tm => { localByid[tm.id] = tm; });
+            const importedIds = new Set(imp.teams.map(itm => itm.id));
+            const merged = imp.teams.map(itm => {
+              const lm = localByid[itm.id];
+              if(lm && (lm.nameApproved || lm.logoApproved || lm.approved)) return lm;
+              return itm;
+            });
+            oldTeams.forEach(lm => {
+              if((lm.nameApproved || lm.logoApproved || lm.approved) && !importedIds.has(lm.id)) merged.push(lm);
+            });
+            ex.teams = merged;
+          }
           if(imp.gymCaptainPin)ex.gymCaptainPin=imp.gymCaptainPin;}
       });
       migrateOfficialRoles(); saveLocal(); render(); renderAdminPanel();
