@@ -390,6 +390,55 @@ let _lastSyncTs = 0;          // timestamp of last successful PUT; used for sync
    console clean. */
 const _IS_SANDBOX = /claudeusercontent\.com|claude\.ai|claude\.site|artifact\.claude/.test(window.location.hostname);
 
+// ── ANALYTICS: unique-visitor tracking ────────────────────────────────────
+// Minimal first-party tracking. No IPs, no referrer, no geolocation. One
+// event per browser per UTC day. Bot UAs filtered. Piggybacks on JSONBin
+// (appState.analytics array, capped at 1000 most recent events).
+const _ANALYTICS_WINDOW_START = '2026-04-22';
+const _ANALYTICS_WINDOW_END   = '2026-04-26';
+
+function _getVisitorId(){
+  let vid = null;
+  try { vid = localStorage.getItem('eoba_vid'); } catch(e) {}
+  if (!vid) {
+    vid = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem('eoba_vid', vid); } catch(e) {}
+  }
+  return vid;
+}
+function _isBotUA(ua){
+  if (!ua) return true;
+  return /bot|crawl|spider|slurp|preview|lighthouse|headless|curl|wget|python-requests|httpclient|scraper|fetch|ahrefs|semrush/i.test(ua);
+}
+function _isMobileUA(){
+  return /Mobi|Android|iPhone|iPad|iPod|Tablet/i.test(navigator.userAgent || '');
+}
+function _todayUTC(){ return new Date().toISOString().slice(0,10); }
+
+function recordPageVisit(){
+  if (_IS_SANDBOX) return;                        // never track in preview
+  if (_isBotUA(navigator.userAgent)) return;       // filter crawlers
+  const today = _todayUTC();
+  const sessKey = 'eoba_v_' + today;
+  try { if (sessionStorage.getItem(sessKey)) return; } catch(e) {}  // fast path
+  try { sessionStorage.setItem(sessKey, '1'); } catch(e) {}
+
+  if (!appState.analytics) appState.analytics = [];
+  const vid = _getVisitorId();
+  // Authoritative dedup across stored events
+  const already = appState.analytics.some(v => v.vid === vid && v.d === today);
+  if (already) return;
+
+  appState.analytics.push({ vid, d: today, dev: _isMobileUA() ? 'm' : 'd' });
+  // Cap array at 1000 most-recent to bound JSONBin payload
+  if (appState.analytics.length > 1000) {
+    appState.analytics = appState.analytics.slice(-1000);
+  }
+  saveLocal();
+  // Debounced push — give sync 4s to settle so we don't collide with other writes
+  setTimeout(() => { if (_cloudLoadedOk) syncToCloud(); }, 4000);
+}
+
 // ── STORAGE ──
 function saveLocal() {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin })); } catch(e) {}
@@ -469,7 +518,8 @@ function buildSyncPayload() {
     officials: appState.officials || [],
     gymCaptainPin: appState.gymCaptainPin || '',
     activeTournamentId: appState.activeTournamentId,
-    tournaments: slimT
+    tournaments: slimT,
+    analytics: appState.analytics || []
   };
 }
 
@@ -569,6 +619,7 @@ async function loadFromCloud() {
       }
       if(rec.officials && rec.officials.length > 0) appState.officials = rec.officials;
       if(rec.gymCaptainPin) appState.gymCaptainPin = rec.gymCaptainPin;
+      if(Array.isArray(rec.analytics)) appState.analytics = rec.analytics;
       if(!appState.activeTournamentId && rec.activeTournamentId)
         appState.activeTournamentId = rec.activeTournamentId;
       /* Ensure DEFAULT_T courts/playoffGames are present */
@@ -1420,6 +1471,8 @@ async function init(){
   if(isAdmin) setTimeout(()=>openAdminPanel(loginRole==='gym'?'scores':'tournaments'),100);
   updateSyncStatus();
   startPolling();
+  // Record this visit 1.5s after init (cloud sync has settled, user is clearly real)
+  setTimeout(recordPageVisit, 1500);
 }
 init();
 
@@ -1468,11 +1521,11 @@ function getMedalWinners(t) {
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
   const t=getActive();
-  const adminTabs=['tournaments','teams','rosters','officials','assignments','schedule','scores'];
+  const adminTabs=['tournaments','teams','rosters','officials','assignments','schedule','analytics','scores'];
   const gcTabs=['scores','assignments','officials'];
   const tabs=loginRole==='gym'?gcTabs:adminTabs;
   const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',
-    officials:'Officials',assignments:'Assignments',schedule:'Schedule',scores:'Score Entry'};
+    officials:'Officials',assignments:'Assignments',schedule:'Schedule',analytics:'Analytics',scores:'Score Entry'};
   const title=loginRole==='gym'?'\uD83D\uDEA9 Gym Captain':'\u2699\uFE0F Admin Panel';
   let html=`<div class="ap-header">
     <div class="ap-title">${title}</div>
@@ -1488,6 +1541,7 @@ function renderAdminPanel() {
   else if(adminTab==='officials')   html+=loginRole==='gym'?apGCOfficials(t):apOfficials(t);
   else if(adminTab==='assignments') html+=apAssignments(t);
   else if(adminTab==='schedule')    html+=apSchedule(t);
+  else if(adminTab==='analytics')   html+=apAnalytics();
   else if(adminTab==='scores')      html+=apGCScores(t);
   html+='</div>';
   panel.innerHTML=html;
@@ -1591,9 +1645,10 @@ function apOfficials(t) {
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)"></label></div>`;
   h+=`<div style="border-top:1px solid var(--border);padding-top:12px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+    <div class="ap-form" style="grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
       <div><label>Role</label><select id="f_or"><option value="Gym Captain">Gym Captain</option><option value="Off-Court Official">Off-Court Official</option></select></div>
       <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
+      <div></div>
       <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
       <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
       <button class="ap-btn ap-btn-primary" onclick="addOfficial()">Add</button>
@@ -1723,6 +1778,70 @@ async function saveGameOfficials(tId,gId,isPO){
   function nvl(id){const el=document.getElementById(id);return(el&&el.value)?el.value:null;}
   g.officials={gc:nvl('f_gc_'+gId),sk:nvl('f_sk_'+gId),sc:nvl('f_sc_'+gId),gs:nvl('f_gs_'+gId)};
   syncToCloud(); renderAdminPanel(); showToast('\u2713 Assignments saved');
+}
+
+function apAnalytics() {
+  const events = appState.analytics || [];
+  // Build every day in the tournament window (inclusive), even zeros
+  const days = [];
+  const start = new Date(_ANALYTICS_WINDOW_START + 'T00:00:00Z');
+  const end   = new Date(_ANALYTICS_WINDOW_END   + 'T00:00:00Z');
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+  // Aggregate per-day: visits, unique set, mobile/desktop count
+  const byDay = {};
+  days.forEach(day => { byDay[day] = { visits:0, uniq:new Set(), mobile:0, desktop:0 }; });
+  events.forEach(e => {
+    if (!byDay[e.d]) return;   // outside window — ignore
+    byDay[e.d].visits++;
+    byDay[e.d].uniq.add(e.vid);
+    if (e.dev === 'm') byDay[e.d].mobile++; else byDay[e.d].desktop++;
+  });
+  // Window-wide unique count
+  const allUniq = new Set();
+  events.forEach(e => {
+    if (e.d >= _ANALYTICS_WINDOW_START && e.d <= _ANALYTICS_WINDOW_END) allUniq.add(e.vid);
+  });
+  const windowTotalVisits = events.filter(e => e.d >= _ANALYTICS_WINDOW_START && e.d <= _ANALYTICS_WINDOW_END).length;
+
+  let h = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
+    Unique browsers visiting the site, one count per browser per UTC day. No IPs stored. Bot user agents filtered.
+  </div>`;
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+    <div style="background:linear-gradient(135deg,var(--orange) 0%,#c2580e 100%);border-radius:8px;padding:14px 16px;color:#fff">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;opacity:0.85;font-weight:700">Unique Visitors</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:900;line-height:1">${allUniq.size}</div>
+      <div style="font-size:10px;opacity:0.8;margin-top:2px">Apr 22\u201326</div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:700">Total Visits</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:900;line-height:1;color:var(--text)">${windowTotalVisits}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">All recorded in window</div>
+    </div>
+  </div>`;
+  h += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;overflow:hidden">
+    <div style="display:grid;grid-template-columns:1fr 70px 70px 90px;gap:8px;padding:10px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--border)">
+      <div>Date</div><div style="text-align:right">Visits</div><div style="text-align:right">Unique</div><div style="text-align:right">Mob / Desk</div>
+    </div>`;
+  days.forEach((day, idx) => {
+    const data = byDay[day];
+    const dateObj = new Date(day + 'T12:00:00Z');
+    const dayName = dateObj.toLocaleDateString('en', { weekday: 'short', timeZone: 'UTC' });
+    const monthDay = dateObj.toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const isTourney = (dayName === 'Fri' || dayName === 'Sat' || dayName === 'Sun');
+    const bg = isTourney ? 'background:rgba(245,197,24,0.06)' : '';
+    const isLast = idx === days.length - 1;
+    const border = isLast ? '' : 'border-bottom:1px solid var(--border);';
+    h += `<div style="display:grid;grid-template-columns:1fr 70px 70px 90px;gap:8px;padding:10px 14px;${border}font-size:13px;${bg}">
+      <div><strong>${dayName}</strong> <span style="color:var(--muted);margin-left:4px">${monthDay}</span>${isTourney?`<span style="margin-left:8px;font-size:9px;color:var(--orange);font-weight:700;letter-spacing:0.5px">\u2022 TOURNAMENT</span>`:''}</div>
+      <div style="text-align:right;font-variant-numeric:tabular-nums">${data.visits}</div>
+      <div style="text-align:right;font-variant-numeric:tabular-nums;color:var(--orange);font-weight:700">${data.uniq.size}</div>
+      <div style="text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px">${data.mobile} / ${data.desktop}</div>
+    </div>`;
+  });
+  h += `</div>`;
+  return h;
 }
 
 function apGCScores(t) {
