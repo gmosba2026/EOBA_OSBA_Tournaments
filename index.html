@@ -888,9 +888,6 @@ function renderSchedule(t) {
       let se='';
       if(done){
         se=`<div class="sdone">${sc.home} \u2013 ${sc.away}</div>`;
-        if(isAdmin) se+=`<button class="cbtn" onclick="doClearScore('${t.id}',${g.id})">Clear</button>`;
-      } else if(isAdmin){
-        se=`<div class="sinps"><input type="number" id="h_${t.id}_${g.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="a_${t.id}_${g.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" onclick="doSaveScore('${t.id}',${g.id})">Save</button>`;
       } else {
         se='<div class="snone">Not yet played</div>';
       }
@@ -903,12 +900,6 @@ function renderSchedule(t) {
   });
   if(isAdmin) html+=`<button class="btn-add-game" onclick="openAddGame('${t.id}')">+ Add Game</button>`;
   el.innerHTML=html;
-  t.games.forEach(g=>{
-    const hi=document.getElementById(`h_${t.id}_${g.id}`);
-    const ai=document.getElementById(`a_${t.id}_${g.id}`);
-    if(hi) hi.addEventListener('keydown',e=>{if(e.key==='Enter')doSaveScore(t.id,g.id);});
-    if(ai) ai.addEventListener('keydown',e=>{if(e.key==='Enter')doSaveScore(t.id,g.id);});
-  });
 }
 
 function renderBracket(t,st) {
@@ -937,22 +928,13 @@ function renderBracket(t,st) {
     const hMed=done?(isG?(h>a?'\uD83E\uDD47 ':'\uD83E\uDD48 '):(isB?(h>a?'\uD83E\uDD49 ':''):'')):'';
     const aMed=done?(isG?(a>h?'\uD83E\uDD47 ':'\uD83E\uDD48 '):(isB?(a>h?'\uD83E\uDD49 ':''):'')):'';
     let sa='';
-    if(isAdmin&&bk){
-      sa=done?`<div class="bentry"><button class="cbtn" onclick="doClearPlayoff('${t.id}','${d.id}')">Clear</button></div>`:`<div class="bentry"><div class="sinps" style="margin-top:4px"><input type="number" id="ph_${t.id}_${d.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="pa_${t.id}_${d.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" style="margin-top:6px" onclick="doSavePlayoff('${t.id}','${d.id}')">Save</button></div>`;
-    }
     html+=`<div class="bgame"><div class="bround">${medalFor(d.round)}${d.round}</div><div class="btime">${d.time}${d.court?' \u00B7 '+d.court:''}</div>
       <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${hMed}${info.homeTeam.name}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
       <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${aMed}${info.awayTeam.name}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
-      ${sa}</div>`;
+      </div>`;
   });
   html+='</div>';
   bEl.innerHTML=html;
-  defs.forEach(d=>{
-    const hi=document.getElementById(`ph_${t.id}_${d.id}`);
-    const ai=document.getElementById(`pa_${t.id}_${d.id}`);
-    if(hi) hi.addEventListener('keydown',e=>{if(e.key==='Enter')doSavePlayoff(t.id,d.id);});
-    if(ai) ai.addEventListener('keydown',e=>{if(e.key==='Enter')doSavePlayoff(t.id,d.id);});
-  });
 }
 
 // ── SCORE HANDLERS ──
@@ -1412,7 +1394,7 @@ function getMedalWinners(t) {
 function renderAdminPanel() {
   const panel=document.getElementById('adminPanel'); if(!panel) return;
   const t=getActive();
-  const adminTabs=['tournaments','teams','rosters','officials','assignments','schedule'];
+  const adminTabs=['tournaments','teams','rosters','officials','assignments','schedule','scores'];
   const gcTabs=['scores','assignments','officials'];
   const tabs=loginRole==='gym'?gcTabs:adminTabs;
   const labels={tournaments:'Tournaments',teams:'Teams',rosters:'Rosters',
@@ -1535,35 +1517,32 @@ function apOfficials(t) {
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)"></label></div>`;
   h+=`<div style="border-top:1px solid var(--border);padding-top:12px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div style="grid-column:1/-1"><label>Role</label><select id="f_or"><option value="Gym Captain">Gym Captain</option><option value="Off-Court Official">Off-Court Official</option></select></div>
-      <div style="grid-column:1/-1"><label>Full Name</label><input id="f_on" placeholder="Full Name"></div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
+      <div><label>Role</label><select id="f_or"><option value="Gym Captain">Gym Captain</option><option value="Off-Court Official">Off-Court Official</option></select></div>
+      <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
       <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
       <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
-    </div>
-    <button class="ap-btn ap-btn-primary" onclick="addOfficial()" style="width:100%;margin-top:8px">+ Add Official</button>
-  </div>`;
+      <button class="ap-btn ap-btn-primary" onclick="addOfficial()">Add</button>
+    </div></div>`;
   return h;
 }
 
 function showOfficialDetail(key) {
-  const selMap = { 'gc':'gcSelector', 'oc':'ocSelector', 'gc_gc':'gcSelector_gc', 'oc_gc':'ocSelector_gc' };
+  const selMap={'gc':'gcSelector','oc':'ocSelector','gc_gc':'gcSelector_gc','oc_gc':'ocSelector_gc'};
   const sel=document.getElementById(selMap[key]);
   const detail=document.getElementById('officialDetail_'+key);
   if(!sel||!detail) return;
   const oId=sel.value; if(!oId){detail.style.display='none';return;}
   const o=(appState.officials||[]).find(x=>x.id===oId); if(!o){detail.style.display='none';return;}
-  // GC panel: Gym Captains are view-only (no remove); Off-Court gets edit only
-  const isGCPanel = key==='gc_gc'||key==='oc_gc';
   const editBtn=`<button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>`;
   const removeBtn=`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>`;
-  const actions = isGCPanel && key==='gc_gc' ? '' : isGCPanel ? editBtn : editBtn+' '+removeBtn;
+  // GC panel: Gym Captains = view only; Off-Court = edit only. Admin = full edit+remove.
+  const actions = key==='gc_gc' ? '' : key==='oc_gc' ? editBtn : editBtn+' '+removeBtn;
   detail.innerHTML=`<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
     <div style="flex:1">
       <div style="font-weight:700;font-size:13px">${o.name}<span style="font-size:10px;color:var(--muted);margin-left:6px">${o.role}</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">${o.phone?`&#x1F4DE; ${o.phone}&nbsp;&nbsp;`:''} ${o.email?`&#x2709; ${o.email}`:''}</div>
-    </div>
-    ${actions}</div>`;
+    </div>${actions}</div>`;
   detail.style.display='';
 }
 
