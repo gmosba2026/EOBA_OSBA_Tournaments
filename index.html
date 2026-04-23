@@ -1281,7 +1281,7 @@ window.addEventListener('online', _resumeRefresh);
 const DEFAULT_T2 = {
   id: 'eoba_u17_2026',
   name: 'EOBA EOY Championship U17/19G',
-  division: 'U17/19', stream: 'Div 1', gender: 'Girls',
+  division: 'U17/19', stream: 'Girls Div 1', gender: 'AAA',
   dates: 'Apr 24\u201326, 2026',
   location: 'Osgoode THS / Mino Mikan ES / Vimy Ridge PS',
   teams: [
@@ -1323,6 +1323,20 @@ async function init(){
     appState.tournaments.push(JSON.parse(JSON.stringify(DEFAULT_T2)));
   if(!appState.activeTournamentId)
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
+
+  /* One-time title migration for U17/19 tournament. Idempotent: only fires
+     if the exact old values are present. Touches only 3 string fields on
+     this one tournament. */
+  (function migrateU17Title(){
+    const t = appState.tournaments.find(x => x.id === 'eoba_u17_2026');
+    if(!t) return;
+    if(t.stream === 'Div 1' && t.gender === 'Girls'){
+      t.stream = 'Girls Div 1';
+      t.gender = 'AAA';
+      saveLocal();
+      syncToCloud();
+    }
+  })();
 
   render();
   if(isAdmin) setTimeout(()=>openAdminPanel(loginRole==='gym'?'scores':'tournaments'),100);
