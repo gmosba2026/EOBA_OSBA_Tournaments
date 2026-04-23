@@ -1442,41 +1442,41 @@ async function init(){
     appState.officials=[{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
     saveLocal();
   }
-  /* Patch A: pull authoritative cloud state FIRST. Any seeds below only fill
-     genuine gaps — if cloud has the live schedule/GC data, we keep it. */
-  await loadFromCloud();
 
-  /* Self-heal analytics field: ensure it's always an array regardless of
-     whatever may be in localStorage or the cloud. Prevents .some() and
-     .forEach() crashes if the field was ever corrupted to a non-array. */
-  if (!Array.isArray(appState.analytics)) appState.analytics = [];
-
+  /* STAGE 1 — render instantly from local cache so the user sees content
+     in milliseconds, not 15s. Seeds defaults if local is fresh (no history).
+     The cloud pull below runs in the background and re-renders when done. */
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
     appState.tournaments.push(JSON.parse(JSON.stringify(DEFAULT_T2)));
   if(!appState.activeTournamentId)
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
-
-  /* One-time title migration for U17/19 tournament. Idempotent: only fires
-     if any field has drifted from the canonical values. Auto-heals data
-     corruption like division="U17/19 Girls" (which caused "GIRLS GIRLS" in
-     the rendered title). */
-  (function migrateU17Title(){
-    const t = appState.tournaments.find(x => x.id === 'eoba_u17_2026');
-    if(!t) return;
-    if(t.division !== 'U17/19' || t.stream !== 'Girls AAA' || t.gender !== 'Div 1'){
-      t.division = 'U17/19';
-      t.stream = 'Girls AAA';
-      t.gender = 'Div 1';
-      saveLocal();
-      syncToCloud();
-    }
-  })();
-
+  if (!Array.isArray(appState.analytics)) appState.analytics = [];
   render();
-  if(isAdmin) setTimeout(()=>openAdminPanel(loginRole==='gym'?'scores':'tournaments'),100);
   updateSyncStatus();
+
+  /* STAGE 2 — pull authoritative cloud state in the background and re-render
+     when it arrives. If cloud has newer data, it replaces what the user saw. */
+  loadFromCloud().then(() => {
+    if (!Array.isArray(appState.analytics)) appState.analytics = [];
+    /* One-time title migration — fires after cloud pull in case cloud has drifted values. */
+    (function migrateU17Title(){
+      const t = appState.tournaments.find(x => x.id === 'eoba_u17_2026');
+      if(!t) return;
+      if(t.division !== 'U17/19' || t.stream !== 'Girls AAA' || t.gender !== 'Div 1'){
+        t.division = 'U17/19';
+        t.stream = 'Girls AAA';
+        t.gender = 'Div 1';
+        saveLocal();
+        syncToCloud();
+      }
+    })();
+    render();
+    updateSyncStatus();
+  });
+
+  if(isAdmin) setTimeout(()=>openAdminPanel(loginRole==='gym'?'scores':'tournaments'),100);
   startPolling();
   // Record this visit 1.5s after init (cloud sync has settled, user is clearly real)
   setTimeout(recordPageVisit, 1500);
