@@ -383,6 +383,7 @@ let isAdmin   = false;
 let pollTimer = null;
 let adminTab  = 'tournaments';
 let appState  = { tournaments:[], activeTournamentId:null };
+let _cloudLoadedOk = false;   // Patch B: writes are blocked until we've confirmed a successful cloud read
 
 // ── STORAGE ──
 function saveLocal() {
@@ -396,6 +397,14 @@ function loadLocal() {
   } catch(e) {}
 }
 async function syncToCloud() {
+  /* Patch B: refuse to push until we've successfully pulled cloud state at least once.
+     Protects against the fresh-device / network-blip scenario where local is just seeded
+     defaults and a blind PUT would clobber live schedule / GC data. */
+  if (!_cloudLoadedOk) {
+    console.warn('[EOBA] sync blocked — cloud not yet loaded');
+    if (isAdmin) showToast('\u26A0 Not synced from cloud yet \u2014 hit \u21BB Refresh, then retry', true);
+    return;
+  }
   saveLocal();
   /* If no bin exists yet, create one first */
   if(!BIN_ID) { await createBin(); if(!BIN_ID) return; }
@@ -478,7 +487,8 @@ async function loadFromCloud() {
   }
   try {
     const res = await fetch(BIN_BASE + BIN_ID + '/latest?_=' + Date.now(), {
-      headers: {'X-Master-Key': BIN_KEY, 'Cache-Control': 'no-store'}
+      cache: 'no-store',
+      headers: {'X-Master-Key': BIN_KEY}
     });
     if(res.status === 404 || res.status === 403) {
       console.warn('[EOBA] Bin not found, creating new one...');
@@ -531,6 +541,7 @@ async function loadFromCloud() {
       });
       migrateOfficialRoles();
       saveLocal();
+      _cloudLoadedOk = true;   // Patch B: confirmed v2 snapshot in hand — writes are now safe
     }
   } catch(e) { console.warn('[EOBA] loadFromCloud:', e.message); }
 }
@@ -1297,24 +1308,30 @@ const DEFAULT_T2 = {
 };
 
 // ── INIT ──
+// ── INIT ──
 async function init(){
   loadLocal();
   try { loginRole=JSON.parse(localStorage.getItem('eoba_login_role')||'null'); } catch(e){}
-  /* Seed U13 officials if empty */
+  /* Seed U13 officials if empty. loadFromCloud will overwrite this if cloud has its own list. */
   if(!appState.officials||appState.officials.length===0){
     appState.officials=[{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
     saveLocal();
   }
+  /* Patch A: pull authoritative cloud state FIRST. Any seeds below only fill
+     genuine gaps — if cloud has the live schedule/GC data, we keep it. */
+  await loadFromCloud();
+
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
     appState.tournaments.push(JSON.parse(JSON.stringify(DEFAULT_T2)));
   if(!appState.activeTournamentId)
     appState.activeTournamentId=appState.tournaments[0]?.id||null;
+
   render();
   if(isAdmin) setTimeout(()=>openAdminPanel(loginRole==='gym'?'scores':'tournaments'),100);
-  await loadFromCloud();
-  render(); updateSyncStatus(); startPolling();
+  updateSyncStatus();
+  startPolling();
 }
 init();
 
