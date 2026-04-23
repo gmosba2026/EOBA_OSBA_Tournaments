@@ -831,12 +831,24 @@ function pLos(t,id,st,defs){const r=pRes(t,id);if(!r)return{id:null,name:'Loser 
 // ── RENDER ──
 function li(src,sz,cls){ return src?`<img src="${src}" alt="" width="${sz}" height="${sz}" style="object-fit:contain;flex-shrink:0" class="${cls||''}">`:'' }
 
+function expandVenueName(v) {
+  return v
+    .replace(/\bTHS\b/g,  'Township High School')
+    .replace(/\bHS\b/g,   'High School')
+    .replace(/\bES\b/g,   'Elementary School')
+    .replace(/\bPS\b/g,   'Public School')
+    .replace(/\bMS\b/g,   'Middle School')
+    .replace(/\bSS\b/g,   'Secondary School');
+}
 function renderHeader(t) {
   const tEl=document.getElementById('headerTitle');
   const mEl=document.getElementById('headerMeta');
   if(!t){tEl.textContent='No Active Tournament';mEl.innerHTML='';return;}
-  tEl.innerHTML=`${t.division} ${t.stream} <span>${t.gender}</span>`;
-  mEl.innerHTML=`<span>&#128197; ${t.dates}</span><span>&#128205; ${t.location}</span>`;
+  tEl.innerHTML=`${t.division} ${t.stream} \u2014 <span>${t.gender}</span>`;
+  /* Venues: split on ' / ', expand abbreviations, each on its own row */
+  const venues = (t.location||'').split(/\s*\/\s*/).filter(Boolean);
+  const venueHtml = venues.map(v=>`<span style="display:block;text-align:center">&#128205; ${expandVenueName(v)}</span>`).join('');
+  mEl.innerHTML=`<span>&#128197; ${t.dates}</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px">${venueHtml}</span>`;
 }
 
 function renderTeams(t) {
@@ -1285,7 +1297,7 @@ window.addEventListener('online', _resumeRefresh);
 const DEFAULT_T2 = {
   id: 'eoba_u17_2026',
   name: 'EOBA EOY Championship U17/19G',
-  division: 'U17/19', stream: 'Girls Div 1', gender: 'AAA',
+  division: 'U17/19', stream: 'Girls AAA', gender: 'Div 1',
   dates: 'Apr 24\u201326, 2026',
   location: 'Osgoode THS / Mino Mikan ES / Vimy Ridge PS',
   teams: [
@@ -1334,9 +1346,9 @@ async function init(){
   (function migrateU17Title(){
     const t = appState.tournaments.find(x => x.id === 'eoba_u17_2026');
     if(!t) return;
-    if(t.stream === 'Div 1' && t.gender === 'Girls'){
-      t.stream = 'Girls Div 1';
-      t.gender = 'AAA';
+    if(t.stream !== 'Girls AAA' || t.gender !== 'Div 1'){
+      t.stream = 'Girls AAA';
+      t.gender = 'Div 1';
       saveLocal();
       syncToCloud();
     }
@@ -1536,7 +1548,6 @@ function showOfficialDetail(key) {
   const o=(appState.officials||[]).find(x=>x.id===oId); if(!o){detail.style.display='none';return;}
   const editBtn=`<button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>`;
   const removeBtn=`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>`;
-  // GC panel: Gym Captains = view only; Off-Court = edit only. Admin = full edit+remove.
   const actions = key==='gc_gc' ? '' : key==='oc_gc' ? editBtn : editBtn+' '+removeBtn;
   detail.innerHTML=`<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
     <div style="flex:1">
