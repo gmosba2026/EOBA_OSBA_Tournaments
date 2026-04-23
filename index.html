@@ -388,7 +388,9 @@ let _lastSyncTs = 0;          // timestamp of last successful PUT; used for sync
    no such CSP. When running in the sandbox, skip cloud sync entirely and
    treat the seed + localStorage as authoritative, keeping the preview
    console clean. */
-const _IS_SANDBOX = /claudeusercontent\.com|claude\.ai|claude\.site|artifact\.claude/.test(window.location.hostname);
+const _IS_SANDBOX = window.location.href.startsWith('about:')
+                  || window.location.hostname === ''
+                  || /claudeusercontent\.com|claude\.ai|claude\.site|artifact\.claude/.test(window.location.hostname);
 
 // ── ANALYTICS: unique-visitor tracking ────────────────────────────────────
 // Minimal first-party tracking. No IPs, no referrer, no geolocation. One
@@ -423,7 +425,7 @@ function recordPageVisit(){
   try { if (sessionStorage.getItem(sessKey)) return; } catch(e) {}  // fast path
   try { sessionStorage.setItem(sessKey, '1'); } catch(e) {}
 
-  if (!appState.analytics) appState.analytics = [];
+  if (!Array.isArray(appState.analytics)) appState.analytics = [];
   const vid = _getVisitorId();
   // Authoritative dedup across stored events
   const already = appState.analytics.some(v => v.vid === vid && v.d === today);
@@ -1444,6 +1446,11 @@ async function init(){
      genuine gaps — if cloud has the live schedule/GC data, we keep it. */
   await loadFromCloud();
 
+  /* Self-heal analytics field: ensure it's always an array regardless of
+     whatever may be in localStorage or the cloud. Prevents .some() and
+     .forEach() crashes if the field was ever corrupted to a non-array. */
+  if (!Array.isArray(appState.analytics)) appState.analytics = [];
+
   if(!appState.tournaments.find(t=>t.id==='eoba_u13_2026'))
     appState.tournaments.unshift(JSON.parse(JSON.stringify(DEFAULT_T)));
   if(!appState.tournaments.find(t=>t.id==='eoba_u17_2026'))
@@ -1781,7 +1788,7 @@ async function saveGameOfficials(tId,gId,isPO){
 }
 
 function apAnalytics() {
-  const events = appState.analytics || [];
+  const events = Array.isArray(appState.analytics) ? appState.analytics : [];
   // Build every day in the tournament window (inclusive), even zeros
   const days = [];
   const start = new Date(_ANALYTICS_WINDOW_START + 'T00:00:00Z');
