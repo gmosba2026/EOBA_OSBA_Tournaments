@@ -443,13 +443,15 @@ function recordPageVisit(){
 
 // ── STORAGE ──
 function saveLocal() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin })); } catch(e) {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ appState })); } catch(e) {}
 }
 function loadLocal() {
   try {
     const d = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     if (d.appState) appState = d.appState;
-    isAdmin = !!d.isAdmin;
+    /* Admin state is deliberately NOT persisted across reloads — users must
+       log in fresh each browser session. */
+    isAdmin = false;
   } catch(e) {}
 }
 async function syncToCloud() {
@@ -1436,7 +1438,11 @@ const DEFAULT_T2 = {
 // ── INIT ──
 async function init(){
   loadLocal();
-  try { loginRole=JSON.parse(localStorage.getItem('eoba_login_role')||'null'); } catch(e){}
+  /* Admin/GC login does NOT persist across page loads — every visitor starts
+     in public view and must re-enter PIN if they need admin or gym-captain
+     access. Clear any stale value from previous builds that may have stored one. */
+  loginRole = null;
+  try { localStorage.removeItem('eoba_login_role'); } catch(e){}
   /* Seed U13 officials if empty. loadFromCloud will overwrite this if cloud has its own list. */
   if(!appState.officials||appState.officials.length===0){
     appState.officials=[{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
