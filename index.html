@@ -413,8 +413,19 @@ async function syncToCloud() {
       if(BIN_ID) await syncToCloud();
       return;
     }
-    if(res.ok) { updateSyncStatus(); }
-  } catch(e) { console.warn('[EOBA] sync failed:', e.message); }
+    if(res.ok) {
+      /* Record local save time so loadFromCloud's merge can tell if local is newer. */
+      appState._savedAt = payload._savedAt;
+      saveLocal();
+      updateSyncStatus();
+    } else {
+      console.warn('[EOBA] sync HTTP', res.status);
+      if(isAdmin) showToast('\u26A0 Sync failed (HTTP '+res.status+') \u2014 retry', true);
+    }
+  } catch(e) {
+    console.warn('[EOBA] sync failed:', e.message);
+    if(isAdmin) showToast('\u26A0 Sync failed \u2014 check connection', true);
+  }
 }
 
 function buildSyncPayload() {
@@ -466,8 +477,8 @@ async function loadFromCloud() {
     return;
   }
   try {
-    const res = await fetch(BIN_BASE + BIN_ID + '/latest', {
-      headers: {'X-Master-Key': BIN_KEY}
+    const res = await fetch(BIN_BASE + BIN_ID + '/latest?_=' + Date.now(), {
+      headers: {'X-Master-Key': BIN_KEY, 'Cache-Control': 'no-store'}
     });
     if(res.status === 404 || res.status === 403) {
       console.warn('[EOBA] Bin not found, creating new one...');
@@ -586,6 +597,7 @@ function removeTeam(tId, tmId) {
 function updateLogo(tId, tmId, logo) {
   const t = appState.tournaments.find(t => t.id === tId); if (!t) return;
   const tm = t.teams.find(m => m.id === tmId); if (!tm) return;
+  if (tm.approved) { showToast('Team is locked — unlock before changing logo', true); return; }
   tm.logo = logo; syncToCloud(); render(); renderAdminPanel();
 }
 
@@ -810,6 +822,15 @@ function renderHeader(t) {
 
 function renderTeams(t) {
   const el=document.getElementById('teamsGrid'); if(!el) return;
+  /* Hide the whole Teams card (header + grid) when the tournament opts out. */
+  const section = el.closest('section');
+  if(t && t.hideTeamsGrid){
+    if(section) section.style.display='none';
+    el.innerHTML='';
+    return;
+  } else if(section){
+    section.style.display='';
+  }
   if(!t){el.innerHTML='<div style="padding:16px;color:var(--muted)">No active tournament</div>';return;}
   el.innerHTML=t.teams.map(tm=>`<div class="team-chip">${li(tLogo(t,tm.id),30)} ${tm.name}</div>`).join('');
 }
@@ -869,7 +890,8 @@ function renderBracket(t,st) {
   const bEl=document.getElementById('bracketBody'), nEl=document.getElementById('bracketNote');
   if(!bEl) return;
   if(!t){bEl.innerHTML='';return;}
-  const defs=playoffDefs(t.teams.length);
+  /* Use t.numTeams when defined (e.g. 'bg' for Bronze+Gold-only format); fall back to team count. */
+  const defs=playoffDefs(t.numTeams || t.teams.length);
   if(!defs.length){if(nEl)nEl.textContent='';bEl.innerHTML='<div style="padding:16px;color:var(--muted);font-style:italic">No playoff format for '+t.teams.length+' teams</div>';return;}
   if(!allRRDone(t)){
     if(nEl) nEl.textContent='';
@@ -1235,6 +1257,19 @@ document.getElementById('pinInput').addEventListener('keydown', e=>{if(e.key==='
 document.getElementById('pinModal').addEventListener('click', e=>{if(e.target===document.getElementById('pinModal'))closePinModal();});
 document.getElementById('modalOverlay').addEventListener('click', e=>{if(e.target===document.getElementById('modalOverlay'))closeModal();});
 
+/* Mobile tab-resume refresh: browsers throttle setInterval in backgrounded tabs,
+   so re-pull from cloud the moment the tab comes back. Skips admin mid-edit to
+   avoid clobbering an input that has focus. */
+function _resumeRefresh(){
+  const focused = document.activeElement;
+  const isEditing = focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT');
+  if(isEditing) return;
+  loadFromCloud().then(()=>{ render(); updateSyncStatus(); }).catch(()=>{});
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') _resumeRefresh(); });
+window.addEventListener('pageshow', e=>{ if(e.persisted) _resumeRefresh(); });
+window.addEventListener('online', _resumeRefresh);
+
 // ── SECOND DEFAULT TOURNAMENT ──
 const DEFAULT_T2 = {
   id: 'eoba_u17_2026',
@@ -1257,7 +1292,8 @@ const DEFAULT_T2 = {
     { id:6, day:'Sat, Apr 25', time:'3:30 PM',  home:'OSS',  away:'PRBC', court:'Osgoode THS'   }
   ],
   scores:{}, playoffScores:{}, rosters:{},
-  numTeams: 'bg'
+  numTeams: 'bg',
+  hideTeamsGrid: true
 };
 
 // ── INIT ──
@@ -1402,15 +1438,23 @@ function apTeams(t) {
   t.teams.forEach(tm=>{
     const logo=tLogo(t,tm.id);
     const rCount=(t.rosters&&t.rosters[tm.id])?t.rosters[tm.id].length:0;
+    const locked = !!tm.approved;
+    const lockBtn = locked
+      ? `<button class="ap-btn ap-btn-sm" title="Unlock team" onclick="toggleTeamApproval('${t.id}','${tm.id}')">&#x1F513; Unlock</button>`
+      : `<button class="ap-btn ap-btn-sm" title="Approve & lock name/logo" onclick="toggleTeamApproval('${t.id}','${tm.id}')">&#x1F512; Approve</button>`;
+    const editBtns = locked
+      ? `<span class="ap-item-sub" style="color:var(--gold);font-weight:700">&#x1F512; Locked</span>`
+      : `<button class="ap-btn ap-btn-sm" onclick="openRenameTeam('${t.id}','${tm.id}')">&#x270F; Rename</button>
+         <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo<input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')"></label>`;
     h+=`<div class="ap-item">
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
         ${logo?`<img src="${logo}" width="36" height="36" style="object-fit:contain;border-radius:4px;flex-shrink:0">`:`<div style="width:36px;height:36px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px">?</div>`}
         <div style="min-width:0"><div class="ap-item-name">${tm.name}</div><div class="ap-item-sub">${rCount} player${rCount!==1?'s':''}</div></div>
       </div>
       <div class="ap-item-actions">
-        <button class="ap-btn ap-btn-sm" onclick="openRenameTeam('${t.id}','${tm.id}')">&#x270F; Rename</button>
-        <label class="ap-btn ap-btn-sm" style="cursor:pointer">&#x1F4F7; Logo<input type="file" accept="image/*" style="display:none" onchange="handleLogoUp(event,'${t.id}','${tm.id}')"></label>
-        ${tm.id.startsWith('TM_')?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveTeam('${t.id}','${tm.id}')">Remove</button>`:''}
+        ${editBtns}
+        ${lockBtn}
+        ${tm.id.startsWith('TM_') && !locked?`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="confirmRemoveTeam('${t.id}','${tm.id}')">Remove</button>`:''}
       </div></div>`;
   });
   return h;
@@ -1713,9 +1757,17 @@ function openRenameTeam(tId,tmId){
 function submitRenameTeam(tId,tmId){
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
   const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  if(tm.approved){ showToast('Team is locked — unlock before renaming', true); return; }
   const n=document.getElementById('f_rn')?.value.trim();
   if(!n) return showToast('Enter a name',true);
   tm.name=n; syncToCloud(); closeModal(); renderAdminPanel(); showToast('Team renamed \u2713');
+}
+function toggleTeamApproval(tId,tmId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
+  const tm=t.teams.find(x=>x.id===tmId); if(!tm) return;
+  tm.approved = !tm.approved;
+  syncToCloud(); render(); renderAdminPanel();
+  showToast(tm.approved ? 'Team locked \u2713' : 'Team unlocked');
 }
 function openEditTournament(tId){
   const t=appState.tournaments.find(x=>x.id===tId); if(!t) return;
