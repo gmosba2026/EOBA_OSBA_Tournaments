@@ -530,6 +530,8 @@ async function loadFromCloud() {
         if(!t.courts || !t.courts.length) t.courts = seed.courts || [];
         if(!t.playoffGames || !t.playoffGames.length)
           t.playoffGames = JSON.parse(JSON.stringify(seed.playoffGames || []));
+        if(t.numTeams === undefined && seed.numTeams !== undefined) t.numTeams = seed.numTeams;
+        if(t.hideTeamsGrid === undefined && seed.hideTeamsGrid !== undefined) t.hideTeamsGrid = seed.hideTeamsGrid;
         seed.teams.forEach(st => {
           const tt = t.teams.find(x => x.id === st.id);
           if(tt) { if(!tt.logo && st.logo) tt.logo = st.logo; if(!tt.name || tt.name === st.id) tt.name = st.name; }
@@ -782,8 +784,8 @@ function playoffDefs(n) {
     {id:'GLD', round:'Gold',         time:'2:30 PM',  seeds:['W_SF1','W_SF2']}
   ];
   if(n==='bg') return [
-    {id:'BRZ',round:'Bronze',time:'10:00 AM',seeds:[3,4]},
-    {id:'GLD',round:'Gold',  time:'12:00 PM',seeds:[1,2]}
+    {id:'BRZ',round:'Bronze',time:'10:00 AM',court:'Vimy Ridge PS',seeds:[3,4]},
+    {id:'GLD',round:'Gold',  time:'12:00 PM',court:'Vimy Ridge PS',seeds:[1,2]}
   ];
   return [];
 }
@@ -900,9 +902,10 @@ function renderBracket(t,st) {
   /* Use t.numTeams when defined (e.g. 'bg' for Bronze+Gold-only format); fall back to team count. */
   const defs=playoffDefs(t.numTeams || t.teams.length);
   if(!defs.length){if(nEl)nEl.textContent='';bEl.innerHTML='<div style="padding:16px;color:var(--muted);font-style:italic">No playoff format for '+t.teams.length+' teams</div>';return;}
+  const medalFor = r => r.includes('Gold') ? '\uD83E\uDD47 ' : r.includes('Bronze') ? '\uD83E\uDD49 ' : '';
   if(!allRRDone(t)){
     if(nEl) nEl.textContent='';
-    bEl.innerHTML=`<div class="tbd-banner"><div class="tbd-title">To Be Determined</div><div class="tbd-sub">Will populate after all round-robin games are finalized</div><div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px">${defs.map(d=>`<div class="bgame" style="border-left-color:var(--border)"><div class="bround">${d.round}</div><div class="btime">${d.time}</div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div></div>`).join('')}</div></div>`;
+    bEl.innerHTML=`<div class="tbd-banner"><div class="tbd-title">To Be Determined</div><div class="tbd-sub">Will populate after all round-robin games are finalized</div><div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px">${defs.map(d=>`<div class="bgame" style="border-left-color:var(--border)"><div class="bround">${medalFor(d.round)}${d.round}</div><div class="btime">${d.time}${d.court?' \u00B7 '+d.court:''}</div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div><div class="bteam tbd-team"><div class="binfo">TBD</div><span>\u2013</span></div></div>`).join('')}</div></div>`;
     return;
   }
   if(nEl) nEl.textContent='\u2726 Auto-filled from standings';
@@ -914,13 +917,16 @@ function renderBracket(t,st) {
     const h=done?+sc.home:null, a=done?+sc.away:null;
     const hC=done?(h>a?'winner':'loser'):'', aC=done?(a>h?'winner':'loser'):'';
     const bk=!info.homeTeam.tbd&&!info.awayTeam.tbd;
+    const isG=d.round.includes('Gold'), isB=d.round.includes('Bronze');
+    const hMed=done?(isG?(h>a?'\uD83E\uDD47 ':'\uD83E\uDD48 '):(isB?(h>a?'\uD83E\uDD49 ':''):'')):'';
+    const aMed=done?(isG?(a>h?'\uD83E\uDD47 ':'\uD83E\uDD48 '):(isB?(a>h?'\uD83E\uDD49 ':''):'')):'';
     let sa='';
     if(isAdmin&&bk){
       sa=done?`<div class="bentry"><button class="cbtn" onclick="doClearPlayoff('${t.id}','${d.id}')">Clear</button></div>`:`<div class="bentry"><div class="sinps" style="margin-top:4px"><input type="number" id="ph_${t.id}_${d.id}" min="0" max="999" placeholder="0"><span class="ssep">\u2013</span><input type="number" id="pa_${t.id}_${d.id}" min="0" max="999" placeholder="0"></div><button class="sbtn" style="margin-top:6px" onclick="doSavePlayoff('${t.id}','${d.id}')">Save</button></div>`;
     }
-    html+=`<div class="bgame"><div class="bround">${d.round}</div><div class="btime">${d.time}</div>
-      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${info.homeTeam.name}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
-      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${info.awayTeam.name}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
+    html+=`<div class="bgame"><div class="bround">${medalFor(d.round)}${d.round}</div><div class="btime">${d.time}${d.court?' \u00B7 '+d.court:''}</div>
+      <div class="bteam ${hC}"><div class="binfo">${info.homeTeam.seed?`<span class="bseed">#${info.homeTeam.seed}</span>`:''} ${li(info.homeTeam.id?tLogo(t,info.homeTeam.id):null,18)} <span>${hMed}${info.homeTeam.name}</span></div><span class="bscr">${done?h:'\u2013'}</span></div>
+      <div class="bteam ${aC}"><div class="binfo">${info.awayTeam.seed?`<span class="bseed">#${info.awayTeam.seed}</span>`:''} ${li(info.awayTeam.id?tLogo(t,info.awayTeam.id):null,18)} <span>${aMed}${info.awayTeam.name}</span></div><span class="bscr">${done?a:'\u2013'}</span></div>
       ${sa}</div>`;
   });
   html+='</div>';
