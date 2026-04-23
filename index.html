@@ -1535,27 +1535,35 @@ function apOfficials(t) {
       <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importOfficialsExcel(event)"></label></div>`;
   h+=`<div style="border-top:1px solid var(--border);padding-top:12px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--silver);margin-bottom:8px">Add Official</div>
-    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end">
-      <div><label>Role</label><select id="f_or"><option value="Gym Captain">Gym Captain</option><option value="Off-Court Official">Off-Court Official</option></select></div>
-      <div><label>Name</label><input id="f_on" placeholder="Full Name"></div>
+    <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="grid-column:1/-1"><label>Role</label><select id="f_or"><option value="Gym Captain">Gym Captain</option><option value="Off-Court Official">Off-Court Official</option></select></div>
+      <div style="grid-column:1/-1"><label>Full Name</label><input id="f_on" placeholder="Full Name"></div>
       <div><label>Phone</label><input id="f_op" placeholder="613-555-0100"></div>
       <div><label>Email</label><input id="f_oe" type="email" placeholder="name@email.com"></div>
-      <button class="ap-btn ap-btn-primary" onclick="addOfficial()">Add</button>
-    </div></div>`;
+    </div>
+    <button class="ap-btn ap-btn-primary" onclick="addOfficial()" style="width:100%;margin-top:8px">+ Add Official</button>
+  </div>`;
   return h;
 }
 
 function showOfficialDetail(key) {
-  const sel=document.getElementById(key==='gc'?'gcSelector':'ocSelector');
+  const selMap = { 'gc':'gcSelector', 'oc':'ocSelector', 'gc_gc':'gcSelector_gc', 'oc_gc':'ocSelector_gc' };
+  const sel=document.getElementById(selMap[key]);
   const detail=document.getElementById('officialDetail_'+key);
   if(!sel||!detail) return;
   const oId=sel.value; if(!oId){detail.style.display='none';return;}
   const o=(appState.officials||[]).find(x=>x.id===oId); if(!o){detail.style.display='none';return;}
+  // GC panel: Gym Captains are view-only (no remove); Off-Court gets edit only
+  const isGCPanel = key==='gc_gc'||key==='oc_gc';
+  const editBtn=`<button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>`;
+  const removeBtn=`<button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button>`;
+  const actions = isGCPanel && key==='gc_gc' ? '' : isGCPanel ? editBtn : editBtn+' '+removeBtn;
   detail.innerHTML=`<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
-    <div style="flex:1"><div style="font-weight:700;font-size:13px">${o.name}<span style="font-size:10px;color:var(--muted);margin-left:6px">${o.role}</span></div>
-    <div style="font-size:11px;color:var(--muted);margin-top:4px">${o.phone?`&#x1F4DE; ${o.phone}`:''} ${o.email?`&#x2709; ${o.email}`:''}</div></div>
-    <button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F; Edit</button>
-    <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeOfficial('${o.id}')">Remove</button></div>`;
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px">${o.name}<span style="font-size:10px;color:var(--muted);margin-left:6px">${o.role}</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${o.phone?`&#x1F4DE; ${o.phone}&nbsp;&nbsp;`:''} ${o.email?`&#x2709; ${o.email}`:''}</div>
+    </div>
+    ${actions}</div>`;
   detail.style.display='';
 }
 
@@ -1716,14 +1724,24 @@ function gcClearScore(tId,gId,isPO){
 
 function apGCOfficials(t) {
   const offs=appState.officials||[];
-  const ocGroup=offs.filter(o=>o.role==='Off-Court Official');
   const gcGroup=offs.filter(o=>o.role==='Gym Captain');
+  const ocGroup=offs.filter(o=>o.role==='Off-Court Official');
+  function officialOpts(group,label){
+    if(!group.length) return `<option value="">— No ${label}s yet —</option>`;
+    return `<option value="">— Select ${label} —</option>`+group.map(o=>`<option value="${o.id}">${o.name}</option>`).join('');
+  }
   let h=`<div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">View officials. Add or edit off-court officials below.</div>`;
-  h+=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;color:var(--orange);margin-bottom:6px">\uD83D\uDEA9 Gym Captains (${gcGroup.length})</div>`;
-  gcGroup.forEach(o=>{h+=`<div style="padding:5px 0;border-bottom:1px solid var(--border)"><div style="font-weight:700;font-size:13px">${o.name}</div><div style="font-size:11px;color:var(--muted)">${o.phone||''} ${o.email||''}</div></div>`;});
-  h+=`<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">\uD83D\uDCCB Off-Court (${ocGroup.length})</div>`;
-  ocGroup.forEach(o=>{h+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div style="flex:1"><div style="font-weight:700;font-size:13px">${o.name}</div><div style="font-size:11px;color:var(--muted)">${o.phone||''} ${o.email||''}</div></div><button class="ap-btn ap-btn-sm" onclick="openEditOfficial('${o.id}')">&#x270F;</button></div>`;});
-  h+=`<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:10px">
+  h+=`<div style="margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--orange);margin-bottom:4px">&#x1F6A9; Gym Captains (${gcGroup.length})</div>
+    <select id="gcSelector_gc" onchange="showOfficialDetail('gc_gc')" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px">${officialOpts(gcGroup,'Gym Captain')}</select>
+    <div id="officialDetail_gc_gc" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+  h+=`<div style="margin-bottom:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">&#x1F4CB; Off-Court Officials (${ocGroup.length})</div>
+    <select id="ocSelector_gc" onchange="showOfficialDetail('oc_gc')" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px">${officialOpts(ocGroup,'Off-Court Official')}</select>
+    <div id="officialDetail_oc_gc" style="display:none;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:6px;padding:10px 14px;margin-top:6px"></div>
+  </div>`;
+  h+=`<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:2px">
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;color:var(--silver);margin-bottom:8px">+ Add Off-Court Official</div>
     <div class="ap-form" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div><label>First Name</label><input id="gc_offFirst" placeholder="First" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
@@ -1732,7 +1750,7 @@ function apGCOfficials(t) {
       <div><label>Email</label><input id="gc_offEmail" type="email" placeholder="name@email.com" onkeydown="if(event.key==='Enter')addOffCourtOfficial()"></div>
     </div>
     <button class="ap-btn ap-btn-primary" onclick="addOffCourtOfficial()" style="width:100%;margin-top:8px">+ Add Official</button>
-    </div>`;
+  </div>`;
   return h;
 }
 
