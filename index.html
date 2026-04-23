@@ -48,7 +48,7 @@ header{background:linear-gradient(135deg,#0d1320 0%,#172040 50%,#0d1320 100%);bo
 header::before{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(-45deg,transparent,transparent 20px,rgba(249,115,22,.03) 20px,rgba(249,115,22,.03) 40px)}
 .hinner{max-width:1100px;margin:0 auto;padding:20px 20px 18px;position:relative;display:grid;grid-template-columns:82px 1fr 82px;align-items:center;gap:14px}
 .hlogo{display:flex;align-items:center;justify-content:center}
-.hlogo img{width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,255,255,.1))}
+.hlogo img{width:90px;height:90px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,255,255,.1))}
 .hcenter{text-align:center}
 .hhost{font-size:clamp(11px,2vw,14px);color:var(--silver);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .htitle{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:clamp(26px,5.5vw,50px);line-height:1;text-transform:uppercase;color:#fff}
@@ -208,8 +208,8 @@ tr.s5{border-left:3px solid var(--rank5)}
 #toast.show{opacity:1;transform:translateY(0)}
 
 @media(max-width:640px){
-  .hinner{grid-template-columns:52px 1fr 52px;padding:14px 12px}
-  .hlogo img{width:46px;height:46px}
+  .hinner{grid-template-columns:65px 1fr 65px;padding:14px 12px}
+  .hlogo img{width:58px;height:58px}
   .gcrd{grid-template-columns:1fr}
   .sentry{align-items:flex-start}
   #adminPanel{width:100vw}
@@ -382,6 +382,14 @@ let appState  = { tournaments:[], activeTournamentId:null };
 let _cloudLoadedOk = false;   // Patch B: writes are blocked until we've confirmed a successful cloud read
 let _lastSyncTs = 0;          // timestamp of last successful PUT; used for sync-status UI
 
+/* Detect claude.ai artifact sandbox: its Content Security Policy blocks
+   api.jsonbin.io, so every cloud fetch fails with a CSP violation error
+   logged by the browser. This is preview-only — the live Render site has
+   no such CSP. When running in the sandbox, skip cloud sync entirely and
+   treat the seed + localStorage as authoritative, keeping the preview
+   console clean. */
+const _IS_SANDBOX = /claudeusercontent\.com|claude\.ai|claude\.site|artifact\.claude/.test(window.location.hostname);
+
 // ── STORAGE ──
 function saveLocal() {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ appState, isAdmin })); } catch(e) {}
@@ -394,6 +402,8 @@ function loadLocal() {
   } catch(e) {}
 }
 async function syncToCloud() {
+  /* Sandbox preview: no cloud reachable due to CSP. Persist locally only. */
+  if (_IS_SANDBOX) { saveLocal(); return true; }
   /* Patch B: refuse to push until we've successfully pulled cloud state at least once.
      Protects against the fresh-device / network-blip scenario where local is just seeded
      defaults and a blind PUT would clobber live schedule / GC data. */
@@ -464,6 +474,7 @@ function buildSyncPayload() {
 }
 
 async function createBin() {
+  if (_IS_SANDBOX) return;  /* no network in preview */
   try {
     const res = await fetch(BIN_BASE, {
       method: 'POST',
@@ -488,6 +499,12 @@ async function createBin() {
 
 
 async function loadFromCloud() {
+  if (_IS_SANDBOX) {
+    /* Sandbox preview: flag cloud as loaded so syncToCloud's guard passes
+       and local writes persist via saveLocal. No fetch attempts, no CSP noise. */
+    _cloudLoadedOk = true;
+    return;
+  }
   if(!BIN_ID) {
     /* No bin yet — try to create one */
     await createBin();
