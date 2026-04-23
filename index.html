@@ -869,6 +869,12 @@ function renderSchedule(t) {
       const done=sc.home!=null&&sc.away!=null;
       const hN=tName(t,g.home), aN=tName(t,g.away);
       const hL=tLogo(t,g.home), aL=tLogo(t,g.away);
+      /* Per-game court: handle both the seed-data string convention (g.court='Osgoode THS')
+         and the admin-UI court-ID convention (g.court='c_12345' looked up in t.courts[]). */
+      const courtObj = (t.courts||[]).find(c=>c.id===g.court);
+      const courtName = courtObj ? courtObj.name : (g.court || t.location);
+      const mapQuery = g.court ? encodeURIComponent(((courtObj && courtObj.address) || courtName) + ', Ottawa, Ontario') : '';
+      const mapLink = g.court ? ` <a href="https://www.google.com/maps/search/?api=1&query=${mapQuery}" target="_blank" rel="noopener" title="Open in Google Maps" style="text-decoration:none;opacity:0.75">\uD83D\uDCCD</a>` : '';
       let se='';
       if(done){
         se=`<div class="sdone">${sc.home} \u2013 ${sc.away}</div>`;
@@ -880,7 +886,7 @@ function renderSchedule(t) {
       }
       html+=`<div class="gcrd${done?' done':''}">
         ${isAdmin?`<button class="btn-rm-game" onclick="confirmRemoveGame('${t.id}',${g.id})" title="Remove game">\u2715</button>`:''}
-        <div><div class="gtime">${g.time} \u00B7 ${t.location}</div><div class="gmatch">${li(hL,20)} ${hN} <span class="gvs">vs</span> ${li(aL,20)} ${aN}</div></div>
+        <div><div class="gtime">${g.time} \u00B7 ${courtName}${mapLink}</div><div class="gmatch">${li(hL,20)} ${hN} <span class="gvs">vs</span> ${li(aL,20)} ${aN}</div></div>
         <div class="sentry">${se}</div>
       </div>`;
     });
