@@ -535,6 +535,7 @@ function buildSyncPayload() {
     version: 2,
     _savedAt: Date.now(),
     officials: appState.officials || [],
+    deletedOfficials: appState.deletedOfficials || {},
     gymCaptainPin: appState.gymCaptainPin || '',
     activeTournamentId: appState.activeTournamentId,
     tournaments: slimT,
@@ -636,14 +637,32 @@ async function loadFromCloud() {
           /* Cloud is the sole source of truth — no local-wins merge. */
         });
       }
-      /* Merge officials: cloud rows win for matching ids (handles remote
-         edits/removals), but any id that exists ONLY locally is preserved.
-         Fixes the race where a freshly-added official disappears because
-         a background poll GETs cloud state before the PUT completes. */
+      /* Merge officials: cloud rows win for matching ids, but any id that
+         exists ONLY locally is preserved (fixes the add-race). Tombstoned
+         ids are dropped from whatever set they appear in (fixes the delete-
+         resurrection race). Tombstones older than 10 minutes are pruned. */
       if(Array.isArray(rec.officials)) {
+        /* Merge cloud tombstones into local so deletes propagate across devices */
+        const cloudTombs = (rec.deletedOfficials && typeof rec.deletedOfficials === 'object') ? rec.deletedOfficials : {};
+        if(!appState.deletedOfficials) appState.deletedOfficials = {};
+        Object.keys(cloudTombs).forEach(id => {
+          const t = cloudTombs[id];
+          if(!appState.deletedOfficials[id] || t > appState.deletedOfficials[id]) {
+            appState.deletedOfficials[id] = t;
+          }
+        });
+        /* Prune tombstones older than 10 minutes — after that any PUT must
+           have long since landed and we don't need to keep fighting cloud. */
+        const cutoff = Date.now() - 10*60*1000;
+        Object.keys(appState.deletedOfficials).forEach(id => {
+          if(appState.deletedOfficials[id] < cutoff) delete appState.deletedOfficials[id];
+        });
+        const tombs = appState.deletedOfficials;
         const cloudIds = new Set(rec.officials.map(o => o.id));
-        const localExtras = (appState.officials || []).filter(o => o && o.id && !cloudIds.has(o.id));
-        appState.officials = rec.officials.concat(localExtras);
+        const localExtras = (appState.officials || []).filter(o => o && o.id && !cloudIds.has(o.id) && !tombs[o.id]);
+        appState.officials = rec.officials
+          .filter(o => o && o.id && !tombs[o.id])
+          .concat(localExtras);
       }
       if(rec.gymCaptainPin) appState.gymCaptainPin = rec.gymCaptainPin;
       if(Array.isArray(rec.analytics)) appState.analytics = rec.analytics;
@@ -1761,7 +1780,14 @@ function submitEditOfficial(oId){
 function removeOfficial(oId){
   if(!confirm('Remove this official?')) return;
   appState.officials=(appState.officials||[]).filter(o=>o.id!==oId);
+  /* Tombstone the ID so a cloud pull doesn't resurrect the record before
+     our PUT lands. Entries expire after 10 minutes — long after any pending
+     sync can still be in flight. */
+  if(!appState.deletedOfficials) appState.deletedOfficials={};
+  appState.deletedOfficials[oId]=Date.now();
+  saveLocal();
   syncToCloud(); renderAdminPanel();
+  showToast('\u2713 Official removed');
 }
 function addOffCourtOfficial(){
   const first=(document.getElementById('gc_offFirst')?.value.trim())||'';
