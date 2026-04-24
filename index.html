@@ -1054,7 +1054,9 @@ function renderSchedule(t) {
       </div>`;
     });
   });
-  if(isAdmin) html+=`<button class="btn-add-game" onclick="openAddGame('${t.id}')">+ Add Game</button>`;
+  /* + Add Game is deliberately NOT exposed on the public schedule, even to
+     logged-in admins/GCs. Game management lives inside the admin panel's
+     Schedule tab to keep the public surface read-only. */
   el.innerHTML=html;
 }
 
