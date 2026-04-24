@@ -1869,11 +1869,12 @@ function apGCScores(t) {
       const sc=(g.isPO?t.playoffScores:t.scores)||{};
       const done=sc[g.id]&&sc[g.id].home!=null&&sc[g.id].away!=null;
       const court=(t.courts||[]).find(c=>c.id===g.court);
+      const contract=court&&court.contractUrl?`<a href="${court.contractUrl}" target="_blank" rel="noopener" style="color:#4caf50;font-size:10px;font-weight:700;margin-left:6px;text-decoration:none;border:1px solid rgba(76,175,80,.35);padding:1px 6px;border-radius:3px">&#x1F4C4; Contract</a>`:'';
       const label=g.isPO?`\uD83C\uDFC6 ${g.round||g.label||'Playoff'}`:`${tName(t,g.home)} vs ${tName(t,g.away)}`;
       h+=`<div style="background:var(--surface2);border:1px solid ${done?'var(--green)':'var(--border)'};border-radius:7px;padding:10px 12px;margin-bottom:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
           <div><div style="font-weight:700;font-size:13px">${label}</div>
-          <div style="font-size:11px;color:var(--muted)">${g.time||''} ${court?' \u00b7 '+court.name:''}</div></div>
+          <div style="font-size:11px;color:var(--muted)">${g.time||''} ${court?' \u00b7 '+court.name:''}${contract}</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="sinp" id="gcs_h_${t.id}_${g.id}" type="number" min="0" placeholder="H"
               style="width:52px;text-align:center;font-size:16px;font-weight:700;${done?'border-color:var(--green)':''}"
@@ -1954,9 +1955,12 @@ function apSchedule(t) {
     <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:8px">&#x1F3EB; Venues / Gyms (${courts.length})</div>`;
   courts.forEach(c=>{
     const murl=c.address?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(c.address):'';
+    const contractUrl=c.contractUrl||'';
     h+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
       <div style="flex:1"><div style="font-weight:700;font-size:13px">${c.name}</div><div style="font-size:11px;color:var(--muted)">${c.address||''}</div></div>
       ${murl?`<a href="${murl}" target="_blank" style="color:var(--orange);font-size:10px;font-weight:700;border:1px solid rgba(249,115,22,.4);padding:3px 8px;border-radius:4px;text-decoration:none">&#x1F4CD; Map</a>`:''}
+      ${contractUrl?`<a href="${contractUrl}" target="_blank" rel="noopener" style="color:#4caf50;font-size:10px;font-weight:700;border:1px solid rgba(76,175,80,.4);padding:3px 8px;border-radius:4px;text-decoration:none">&#x1F4C4; Contract</a>`:''}
+      <button class="ap-btn ap-btn-sm" onclick="editContractUrl('${t.id}','${c.id}')" title="${contractUrl?'Update':'Add'} contract link">${contractUrl?'&#x270F; Contract':'+ Contract'}</button>
       <button class="ap-btn ap-btn-sm" onclick="openEditCourt('${t.id}','${c.id}')">&#x270F; Edit</button>
       <button class="ap-btn ap-btn-sm ap-btn-danger" onclick="removeCourt('${t.id}','${c.id}')">Remove</button></div>`;
   });
@@ -2159,6 +2163,22 @@ function removeCourt(tId,cId){
   if(!confirm('Remove this venue?')) return;
   t.courts=t.courts.filter(c=>c.id!==cId);
   syncToCloud(); renderAdminPanel();
+}
+function editContractUrl(tId,cId){
+  const t=appState.tournaments.find(x=>x.id===tId); if(!t||!t.courts) return;
+  const c=t.courts.find(x=>x.id===cId); if(!c) return;
+  const current=c.contractUrl||'';
+  const msg=`Contract link for ${c.name}\n\nPaste the Google Drive URL below. Leave empty to remove.`;
+  const v=prompt(msg,current);
+  if(v===null) return;  /* user cancelled */
+  const trimmed=v.trim();
+  if(trimmed && !/^https?:\/\//i.test(trimmed)){
+    alert('Link must start with http:// or https://');
+    return;
+  }
+  if(trimmed) c.contractUrl=trimmed; else delete c.contractUrl;
+  syncToCloud(); renderAdminPanel();
+  showToast(trimmed?'\u2713 Contract link saved':'Contract link removed');
 }
 function exportData(){
   const data={version:2,exportedAt:new Date().toISOString(),officials:appState.officials||[],gymCaptainPin:appState.gymCaptainPin||'',
