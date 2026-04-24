@@ -684,22 +684,28 @@ async function manualRefresh() {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    /* Poll for cloud updates on ALL devices (admin, gym captain, viewer).
-       Skip a poll cycle when the user is actively editing (INPUT/TEXTAREA/SELECT
-       has focus), so we don't wipe their focus or mid-typed input.
-       IMPORTANT: the previous implementation skipped polling entirely whenever
-       the admin panel was open, which meant GCs at a gym never saw other gyms'
-       scores go live. Now we always loadFromCloud + render the public view; we
-       only skip re-rendering the admin panel itself to preserve unsaved form
-       state (dropdown selections, pending score inputs). Admin users can hit
-       manual Refresh to pull updates into the admin panel when ready. */
+    /* Poll for cloud updates on ALL devices. Skip a cycle when the user is
+       actively editing so we don't wipe focus or in-flight input.
+       The admin panel is NOT re-rendered by this poll — that would wipe
+       any dropdown selection the admin was about to commit, scroll the
+       viewport to the top, and generally make the panel unusable. Admins
+       pull fresh data with the manual Refresh button. Public view still
+       updates so GCs and viewers see live scores. */
     const ae = document.activeElement;
     const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
     if (typing) return;
     await loadFromCloud();
-    render();
+    renderPublicOnly();
     updateSyncStatus();
   }, 15000);
+}
+/* Public-only render variant: refreshes header/standings/schedule/bracket
+   without touching the admin panel. Used by the background poll and by any
+   auto-refresh hook that shouldn't disturb admin work in progress. */
+function renderPublicOnly() {
+  const t = getActive(), st = t ? calcStandings(t) : [];
+  renderHeader(t); renderTeams(t); renderStandings(t, st);
+  renderSchedule(t); renderBracket(t, st); updateBanner();
 }
 function updateSyncStatus() {
   const el = document.getElementById('syncStatus'); if (!el) return;
@@ -1425,7 +1431,7 @@ function _resumeRefresh(){
   const focused = document.activeElement;
   const isEditing = focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT');
   if(isEditing) return;
-  loadFromCloud().then(()=>{ render(); updateSyncStatus(); }).catch(()=>{});
+  loadFromCloud().then(()=>{ renderPublicOnly(); updateSyncStatus(); }).catch(()=>{});
 }
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') _resumeRefresh(); });
 window.addEventListener('pageshow', e=>{ if(e.persisted) _resumeRefresh(); });
@@ -1584,7 +1590,11 @@ function renderAdminPanel() {
   else if(adminTab==='analytics')   html+=apAnalytics();
   else if(adminTab==='scores')      html+=apGCScores(t);
   html+='</div>';
+  /* Preserve scroll position across innerHTML rewrites so the admin isn't
+     yanked to the top every time a re-render fires. */
+  const prevScroll = panel.scrollTop;
   panel.innerHTML=html;
+  panel.scrollTop = prevScroll;
 }
 
 function apTournaments() {
@@ -1775,7 +1785,16 @@ function apAssignments(t) {
   const gcOffs=offs.filter(o=>normalizeRole(o.role)===ROLE_GC);
   const ocOffs=offs.filter(o=>normalizeRole(o.role)===ROLE_OC);
   function offSel(id,val,pool){
-    return `<select id="${id}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px;font-size:12px">
+    /* Parse the game id and field from the select id. Format: f_{field}_{gameId}
+       where field is one of gc/sk/sc/gs. Persists the change directly to
+       appState on change so a background re-render can't wipe the selection. */
+    const m = id.match(/^f_(gc|sk|sc|gs)_(.+)$/);
+    const field = m ? m[1] : '';
+    const gameId = m ? m[2] : '';
+    const onc = field
+      ? ` onchange="saveOfficialAssignment('${tourn.id}','${gameId}','${field}',this.value)"`
+      : '';
+    return `<select id="${id}"${onc} style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 7px;font-size:12px">
       <option value="">-- Unassigned --</option>
       ${pool.map(o=>`<option value="${o.id}"${o.id===val?' selected':''}>${o.name}</option>`).join('')}</select>`;
   }
@@ -1819,6 +1838,27 @@ async function saveGameOfficials(tId,gId,isPO){
   function nvl(id){const el=document.getElementById(id);return(el&&el.value)?el.value:null;}
   g.officials={gc:nvl('f_gc_'+gId),sk:nvl('f_sk_'+gId),sc:nvl('f_sc_'+gId),gs:nvl('f_gs_'+gId)};
   syncToCloud(); renderAdminPanel(); showToast('\u2713 Assignments saved');
+}
+
+/* Per-dropdown autosave: writes one assignment field to appState and triggers
+   a background sync, but DOES NOT re-render. This prevents the scroll jump
+   and value flicker that happens when the admin picks a dropdown. The user
+   can still click the Save button on the row to confirm all fields together
+   (it's harmless — it just re-reads the same values). */
+function saveOfficialAssignment(tId, gId, field, value) {
+  const t = appState.tournaments.find(x => x.id === tId); if (!t) return;
+  /* Search both regular and playoff games — assignments can apply to either. */
+  const gidStr = String(gId);
+  let g = (t.games || []).find(x => String(x.id) === gidStr);
+  if (!g) g = (t.playoffGames || []).find(x => String(x.id) === gidStr);
+  if (!g) return;
+  if (!g.officials) g.officials = { gc: null, sk: null, sc: null, gs: null };
+  g.officials[field] = value || null;
+  saveLocal();
+  syncToCloud();
+  /* No renderAdminPanel() — that's the whole point. The DOM already reflects
+     the user's choice; appState now matches; a poll or explicit Save can
+     re-render safely without losing selections. */
 }
 
 function apAnalytics() {
