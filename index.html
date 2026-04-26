@@ -202,8 +202,8 @@ tr.s5{border-left:3px solid var(--rank5)}
 .ap-title{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;text-transform:uppercase;letter-spacing:1px;color:var(--orange)}
 .ap-close{background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px;line-height:1}
 .ap-close:hover{color:var(--text)}
-.ap-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
-.ap-tab{flex:1;padding:10px 4px;background:transparent;border:none;color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.ap-tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ap-tab{flex:1 1 90px;min-width:80px;padding:10px 4px;background:transparent;border:none;color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
 .ap-tab:hover{color:var(--text)}
 .ap-tab.active{color:var(--orange);border-bottom-color:var(--orange)}
 .ap-body{flex:1;overflow-y:auto;padding:16px}
@@ -1996,6 +1996,22 @@ function apGCScores(t) {
       const info = pInfo(t, d.id, st, defs);
       const homeTeam = info ? info.homeTeam : null;
       const awayTeam = info ? info.awayTeam : null;
+      /* playoffDefs() returns court as a NAME string ("Vimy Ridge PS") rather
+         than a court id. Resolve to the actual court object so the contract
+         pill (and other court-keyed lookups) work the same as RR games. We
+         match leniently — case-insensitive substring — because the
+         bracket-def name and the venue name in t.courts may not match
+         character for character (e.g. "Vimy Ridge PS" vs "Vimy Ridge Public
+         School"). */
+      let courtId = null;
+      if (d.court) {
+        const want = d.court.toLowerCase();
+        const match = (t.courts||[]).find(c => {
+          const n = (c.name||'').toLowerCase();
+          return n === want || n.includes(want) || want.includes(n);
+        });
+        if (match) courtId = match.id;
+      }
       return {
         id: d.id,
         isPO: true,
@@ -2003,9 +2019,7 @@ function apGCScores(t) {
         time: d.time || '',
         round: d.round || '',
         label: d.round || 'Playoff',
-        court: null,
-        /* Use real team ids when seeded, otherwise fall back to TBD label
-           that tName() can render. */
+        court: courtId,
         home: homeTeam && homeTeam.id ? homeTeam.id : null,
         away: awayTeam && awayTeam.id ? awayTeam.id : null,
         homeName: homeTeam ? homeTeam.name : 'TBD',
