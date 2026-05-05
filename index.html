@@ -770,7 +770,7 @@ function calcStandings(t) {
 }
 
 // ── PLAYOFF LOGIC ──
-function playoffDefs(n) {
+function playoffDefs(n, t) {
   if(n===5) return [
     {id:'PI',  round:'Play-In',      time:'9:00 AM',  seeds:[4,5]},
     {id:'SF1', round:'Semi-Final 1', time:'10:30 AM', seeds:[2,3]},
@@ -793,10 +793,22 @@ function playoffDefs(n) {
     {id:'BRZ', round:'Bronze',       time:'1:00 PM',  seeds:['L_SF1','L_SF2']},
     {id:'GLD', round:'Gold',         time:'2:30 PM',  seeds:['W_SF1','W_SF2']}
   ];
-  if(n==='bg') return [
-    {id:'BRZ',round:'Bronze',time:'10:00 AM',court:'Vimy Ridge PS',seeds:[3,4]},
-    {id:'GLD',round:'Gold',  time:'12:00 PM',court:'Vimy Ridge PS',seeds:[1,2]}
-  ];
+  if(n==='bg') {
+    /* Bronze+Gold-only format; pull times/courts from the tournament's actual
+       playoffGames when supplied so each tournament can use its own venue/time. */
+    let brzTime='10:00 AM', brzCourt='Vimy Ridge PS', gldTime='12:00 PM', gldCourt='Vimy Ridge PS';
+    if(t && Array.isArray(t.playoffGames) && t.playoffGames.length){
+      const courtName=id=>(t.courts||[]).find(c=>c.id===id)?.name || id || '';
+      const bronze=t.playoffGames.find(g=>g.round && /bronze|3rd/i.test(g.round));
+      const gold  =t.playoffGames.find(g=>g.round && /gold|1st/i.test(g.round));
+      if(bronze){ if(bronze.time) brzTime=bronze.time; if(bronze.court) brzCourt=courtName(bronze.court); }
+      if(gold)  { if(gold.time)   gldTime=gold.time;   if(gold.court)   gldCourt=courtName(gold.court); }
+    }
+    return [
+      {id:'BRZ',round:'Bronze',time:brzTime,court:brzCourt,seeds:[3,4]},
+      {id:'GLD',round:'Gold',  time:gldTime,court:gldCourt,seeds:[1,2]}
+    ];
+  }
   return [];
 }
 function allRRDone(t) {
@@ -919,7 +931,7 @@ function renderBracket(t,st) {
   if(!bEl) return;
   if(!t){bEl.innerHTML='';return;}
   /* Use t.numTeams when defined (e.g. 'bg' for Bronze+Gold-only format); fall back to team count. */
-  const defs=playoffDefs(t.numTeams || t.teams.length);
+  const defs=playoffDefs(t.numTeams || t.teams.length, t);
   if(!defs.length){if(nEl)nEl.textContent='';bEl.innerHTML='<div style="padding:16px;color:var(--muted);font-style:italic">No playoff format for '+t.teams.length+' teams</div>';return;}
   const medalFor = r => r.includes('Gold') ? '\uD83E\uDD47 ' : r.includes('Bronze') ? '\uD83E\uDD49 ' : '';
   if(!allRRDone(t)){
@@ -1370,12 +1382,13 @@ async function init(){
         {id:6, day:'Sat May 9', time:'4:00 PM',  home:TM.OSBA, away:TM.GCBA, court:C.MM,  officials:{gc:'',          sk:'o_oc_sammy',sc:'', gs:''}}
       ],
       playoffGames:[
-        {id:101, round:'Bronze Medal (3rd vs 4th)', day:'Sun May 10', time:'9:00 AM',  court:C.MM, home:null, away:null, officials:{gc:'',sk:'',sc:'',gs:''}},
-        {id:102, round:'Gold Medal (1st vs 2nd)',   day:'Sun May 10', time:'11:00 AM', court:C.MM, home:null, away:null, officials:{gc:'',sk:'',sc:'',gs:''}}
+        {id:'BRZ', round:'Bronze', day:'Sun May 10', time:'9:00 AM',  court:C.MM, home:null, away:null, officials:{gc:'',sk:'',sc:'',gs:''}},
+        {id:'GLD', round:'Gold',   day:'Sun May 10', time:'11:00 AM', court:C.MM, home:null, away:null, officials:{gc:'',sk:'',sc:'',gs:''}}
       ],
       scores:{},
       playoffScores:{},
-      rosters:{[TM.OSBA]:[],[TM.RS]:[],[TM.GCBA]:[],[TM.OE]:[]}
+      rosters:{[TM.OSBA]:[],[TM.RS]:[],[TM.GCBA]:[],[TM.OE]:[]},
+      numTeams:'bg'
     });
     saveLocal();
   }
