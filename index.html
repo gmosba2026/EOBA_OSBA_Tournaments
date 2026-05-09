@@ -566,7 +566,7 @@ function startPolling() {
     const panelOpen = !!document.querySelector('#adminPanel.open');
     if (typing || panelOpen) return;
     await loadFromCloud(); render(); updateSyncStatus();
-  }, 15000);
+  }, 3000);
 }
 function updateSyncStatus() {
   const el = document.getElementById('syncStatus'); if (!el) return;
