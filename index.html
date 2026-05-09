@@ -441,11 +441,11 @@ async function syncToCloud() {
 }
 
 function buildSyncPayload() {
-  /* Strip logos from tournaments to keep payload small */
+  /* Drop the giant header background; cap per-logo size at 50KB so JSONbin payload stays sane. */
   const slimT = (appState.tournaments||[]).map(t => {
     const s = JSON.parse(JSON.stringify(t));
     delete s.headerBg;
-    (s.teams||[]).forEach(tm => { if(tm.logo && tm.logo.length > 5000) delete tm.logo; });
+    (s.teams||[]).forEach(tm => { if(tm.logo && tm.logo.length > 50000) delete tm.logo; });
     return s;
   });
   return {
@@ -649,8 +649,8 @@ function removeGame(tId, gId) {
 }
 
 // ── LOGO RESIZE ──
-// Decodes the picked image, rescales to <=80px, and re-encodes as PNG so the
-// stored data URI is always a format every browser can render. iPhone HEIC is
+// Decodes the picked image, rescales to <=80px, and re-encodes as JPEG so the
+// stored data URI is always a small, browser-renderable format. iPhone HEIC is
 // rejected up front because Chrome/Edge on Windows can't decode it.
 function resizeLogo(file) {
   return new Promise((resolve, reject) => {
@@ -672,8 +672,10 @@ function resizeLogo(file) {
           if (w > h) { h = Math.round(h*MAX/w); w = MAX; } else { w = Math.round(w*MAX/h); h = MAX; }
         }
         const c = document.createElement('canvas'); c.width=w; c.height=h;
-        c.getContext('2d').drawImage(img,0,0,w,h);
-        resolve(c.toDataURL('image/png'));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        resolve(c.toDataURL('image/jpeg', 0.82));
       };
       img.src = e.target.result;
     };
@@ -1349,6 +1351,20 @@ const DEFAULT_T2 = {
 async function init(){
   loadLocal();
   try { loginRole=JSON.parse(localStorage.getItem('eoba_login_role')||'null'); } catch(e){}
+  /* TEMPORARY one-time recovery: ?forceSync=1 pushes this device's localStorage to the cloud,
+     overwriting whatever is there. Used to recover logos that were stripped by the old 5000-char
+     payload limit. Remove this block after the recovery push has been done. */
+  if(new URLSearchParams(location.search).get('forceSync')==='1'){
+    if(confirm('FORCE PUSH: overwrite cloud with this device\'s data?\n\nTeams: '+(appState.tournaments||[]).reduce((n,t)=>n+(t.teams||[]).length,0)+'\nLogos: '+(appState.tournaments||[]).reduce((n,t)=>n+(t.teams||[]).filter(x=>x.logo).length,0))){
+      try{
+        const payload = buildSyncPayload();
+        const res = await fetch(BIN_BASE + BIN_ID, {method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':BIN_KEY},body:JSON.stringify(payload)});
+        if(res.ok){ alert('Cloud updated. Reload without ?forceSync=1 to continue.'); }
+        else { alert('Push failed: '+res.status+' '+res.statusText); }
+      }catch(e){ alert('Push error: '+e.message); }
+      return;
+    }
+  }
   /* Seed U13 officials if empty. loadFromCloud will overwrite this if cloud has its own list. */
   if(!appState.officials||appState.officials.length===0){
     appState.officials=[{"id": "o_gc_rich", "role": "Gym Captain", "name": "Rich Reitano", "phone": "613-720-9470", "email": ""}, {"id": "o_gc_jack", "role": "Gym Captain", "name": "Jack Dotten", "phone": "613-277-5031", "email": "jack@myblackdog.com"}, {"id": "o_gc_allison", "role": "Gym Captain", "name": "Allison Harvey", "phone": "613-296-5662", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_antoni", "role": "Off-Court Official", "name": "Antoni Reitano", "phone": "", "email": "yourhairstylist@msn.com"}, {"id": "o_oc_sammy", "role": "Off-Court Official", "name": "Sammy El", "phone": "343-254-3848", "email": "elmouloudisami@gmail.com"}, {"id": "o_oc_mitchell", "role": "Off-Court Official", "name": "Mitchell Dotten", "phone": "613-852-5078", "email": "mitchell@myblackdog.com"}, {"id": "o_oc_carson", "role": "Off-Court Official", "name": "Carson Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_samatar", "role": "Off-Court Official", "name": "Samatar Bakal", "phone": "613-884-1599", "email": "samta.bakal30@gmail.com"}, {"id": "o_oc_kaity", "role": "Off-Court Official", "name": "Kaity Harvey", "phone": "", "email": "allisonharvey79@gmail.com"}, {"id": "o_oc_raheem", "role": "Off-Court Official", "name": "Raheem Tanimowo", "phone": "613-879-4537", "email": "rxhxexmtanimowo@gmail.com"}];
